@@ -52,12 +52,3 @@ ffmpeg -framerate 60 -i output/frame_%04d.png -c:v libx24 -pix_fmt yuv420p outpu
 *   **SixLabors.ImageSharp.Drawing**: 이미지에 도형과 텍스트를 그리기 위한 라이브러리입니다.
 
 이 라이브러리들은 `dotnet restore` 명령어를 통해 자동으로 설치됩니다.
-
-## 품질 보증 (Quality Assurance)
-
-이 프로젝트는 CI(Continuous Integration) 파이프라인에서 코드의 무결성을 검증하기 위한 스크립트를 포함하고 있습니다. 이 스크립트는 프로젝트의 의존성을 복원하고, 코드가 성공적으로 빌드되는지 확인합니다.
-
-로컬 환경에서 빌드 상태를 확인하려면 다음 명령어를 실행하세요:
-```bash
-./ci-check.sh
-```
