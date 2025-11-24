@@ -1,3 +1,5 @@
+[![.NET CI](https://github.com/<OWNER>/<REPO>/actions/workflows/dotnet-ci.yml/badge.svg)](https://github.com/<OWNER>/<REPO>/actions/workflows/dotnet-ci.yml)
+
 # UnitMove 시뮬레이션
 
 이 프로젝트는 유닛들의 전투 상황을 시뮬레이션하는 프로그램입니다. 두 개의 분대가 서로 전투를 벌이는 동안의 움직임, 위치 선정, 그리고 전투 로직을 시각화하여 일련의 이미지 프레이으로 생성합니다. 이 시뮬레이션은 충돌 회피, 목표물을 둘러싸기 위한 공격 슬롯 관리, 대형 유지 등과 같은 고급 개념을 구현한 예제입니다.
@@ -52,3 +54,12 @@ ffmpeg -framerate 60 -i output/frame_%04d.png -c:v libx24 -pix_fmt yuv420p outpu
 *   **SixLabors.ImageSharp.Drawing**: 이미지에 도형과 텍스트를 그리기 위한 라이브러리입니다.
 
 이 라이브러리들은 `dotnet restore` 명령어를 통해 자동으로 설치됩니다.
+
+## 품질 보증 (Quality Assurance)
+
+이 프로젝트는 GitHub Actions를 사용한 CI(Continuous Integration) 파이프라인을 통해 코드의 무결성을 자동으로 검증합니다. Pull Request나 Push가 발생할 때마다 빌드가 정상적으로 수행되는지 확인합니다.
+
+로컬 환경에서 빌드 상태를 확인하려면 다음 명령어를 실행하세요:
+```bash
+./ci-check.sh
+```
