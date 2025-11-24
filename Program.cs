@@ -132,6 +132,12 @@ public class Program
     private static Dictionary<int, List<Vector2>> _waveSpawns = new();
     private const float CollisionRadiusScale = 2f / 3f;
 
+    // --- 분대 행동 제어를 위한 상태 변수 ---
+    private static Unit? _squadTarget = null;
+    private static Vector2 _rallyPoint = Vector2.Zero;
+    private static bool _isReadyToAttack = false;
+    // ------------------------------------
+
     public static void Main(string[] args)
     {
         SetupEnvironment();
@@ -159,6 +165,12 @@ public class Program
                 {
                     _currentWave++;
                     Console.WriteLine($"Wave {_currentWave-1} cleared! Spawning wave {_currentWave}...");
+
+                    // --- 상태 초기화 ---
+                    _squadTarget = null;
+                    _isReadyToAttack = false;
+                    // -----------------
+
                     friendlySquad.ForEach(f => Array.Fill(f.AttackSlots, null));
                     SpawnNextWave(enemySquad, unitRadius);
                 }
@@ -257,54 +269,119 @@ public class Program
 
         if (livingEnemies.Any())
         {
-            foreach(var friendly in friendlies)
+            // --- 목표 및 집결지 설정 (최초 1회) ---
+            if (_squadTarget == null)
             {
-                if (friendly.Target != null && friendly.Target.IsDead)
+                var leader = friendlies[0];
+                _squadTarget = livingEnemies.OrderBy(e => Vector2.Distance(leader.Position, e.Position)).FirstOrDefault();
+                if (_squadTarget != null)
                 {
-                    friendly.Target.ReleaseSlot(friendly);
-                    friendly.Target = null;
+                    // 목표로부터 300 유닛 떨어진 곳을 집결지로 설정
+                    Vector2 directionToTarget = Vector2.Normalize(_squadTarget.Position - leader.Position);
+                    _rallyPoint = _squadTarget.Position - directionToTarget * 300f;
                 }
+            }
 
-                friendly.AttackCooldown = Math.Max(0, friendly.AttackCooldown - 1);
-                var previousTarget = friendly.Target;
-                friendly.Target = livingEnemies.OrderBy(e => Vector2.Distance(friendly.Position, e.Position)).FirstOrDefault();
-                if (previousTarget != null && previousTarget != friendly.Target) previousTarget.ReleaseSlot(friendly);
-                if (friendly.Target != null) friendly.Target.ClaimBestSlot(friendly);
-                int slotIndex = friendly.TakenSlotIndex;
+            // 목표가 죽으면 새로운 목표를 탐색
+            if (_squadTarget != null && _squadTarget.IsDead)
+            {
+                _squadTarget = null; // 다음 프레임에 새 타겟 설정
+                _isReadyToAttack = false; // 재집결
+            }
 
-                if (friendly.Target != null)
+            // --- 공격 개시 조건 확인 ---
+            var squadLeader = friendlies[0];
+            if (!_isReadyToAttack && Vector2.Distance(squadLeader.Position, _rallyPoint) < 20f)
+            {
+                _isReadyToAttack = true;
+                Console.WriteLine("Squad has reached the rally point. Engaging!");
+            }
+
+            // --- 집결지로 이동 (대형 유지) ---
+            var formationOffsets = new List<Vector2> { new(0, 0), new(0, 90), new(-80, -45), new(-80, 135) };
+
+            Vector2 leaderTargetPosition = _isReadyToAttack ? squadLeader.Position : _rallyPoint; // 집결 완료 전에는 집결지로
+
+            Vector2 toMain = leaderTargetPosition - squadLeader.Position;
+            squadLeader.Velocity = toMain.Length() < 5f ? Vector2.Zero : SafeNormalize(toMain) * squadLeader.Speed;
+            squadLeader.Position += squadLeader.Velocity;
+            UpdateUnitRotation(squadLeader);
+
+            for (int i = 1; i < friendlies.Count; i++)
+            {
+                var follower = friendlies[i];
+                var rotation = Matrix3x2.CreateRotation(MathF.Atan2(squadLeader.Forward.Y, squadLeader.Forward.X));
+                var rotatedOffset = Vector2.Transform(formationOffsets[i], rotation);
+                var formationTarget = squadLeader.Position + rotatedOffset;
+
+                Vector2 toFormation = formationTarget - follower.Position;
+                float distanceToSlot = toFormation.Length();
+                float rampedSpeed = follower.Speed * Math.Clamp(distanceToSlot / 150f, 0.1f, 1.0f);
+
+                follower.Velocity = distanceToSlot < 3f ? Vector2.Zero : SafeNormalize(toFormation) * rampedSpeed;
+                follower.Position += follower.Velocity;
+                UpdateUnitRotation(follower);
+            }
+
+            // --- 개별 유닛 공격 로직 (집결 완료 시) ---
+            if (_isReadyToAttack)
+            {
+                foreach(var friendly in friendlies)
                 {
-                    Vector2 attackPosition = slotIndex != -1
-                        ? friendly.Target.GetSlotPosition(slotIndex, friendly.Radius)
-                        : friendly.Target.Position;
-
-                    float distanceToAttack = Vector2.Distance(friendly.Position, attackPosition);
-                    if (distanceToAttack <= friendly.AttackRange)
+                    if (friendly.Target != null && friendly.Target.IsDead)
                     {
-                        friendly.Velocity = Vector2.Zero;
-                        if (friendly.AttackCooldown <= 0)
+                        friendly.Target.ReleaseSlot(friendly);
+                        friendly.Target = null;
+                    }
+
+                    friendly.AttackCooldown = Math.Max(0, friendly.AttackCooldown - 1);
+                    var previousTarget = friendly.Target;
+                    friendly.Target = livingEnemies.OrderBy(e => Vector2.Distance(friendly.Position, e.Position)).FirstOrDefault();
+                    if (previousTarget != null && previousTarget != friendly.Target) previousTarget.ReleaseSlot(friendly);
+                    if (friendly.Target != null) friendly.Target.ClaimBestSlot(friendly);
+                    int slotIndex = friendly.TakenSlotIndex;
+
+                    if (friendly.Target != null)
+                    {
+                        Vector2 attackPosition = slotIndex != -1
+                            ? friendly.Target.GetSlotPosition(slotIndex, friendly.Radius)
+                            : friendly.Target.Position;
+
+                        float distanceToAttack = Vector2.Distance(friendly.Position, attackPosition);
+                        if (distanceToAttack <= friendly.AttackRange)
                         {
-                            friendly.Target.HP--;
-                            friendly.AttackCooldown = attackCooldown;
-                            friendly.RecentAttacks.Add(new Tuple<Unit, int>(friendly.Target, 5));
+                            friendly.Velocity = Vector2.Zero; // 공격 위치에 도달하면 정지
+                            if (friendly.AttackCooldown <= 0)
+                            {
+                                friendly.Target.HP--;
+                                friendly.AttackCooldown = attackCooldown;
+                                friendly.RecentAttacks.Add(new Tuple<Unit, int>(friendly.Target, 5));
+                            }
+                        }
+                        else
+                        {
+                            // 공격 위치로 이동
+                            Vector2 seekVector = SafeNormalize(attackPosition - friendly.Position);
+                            Vector2 separationVector = CalculateSeparationVector(friendly, friendlies, 80f);
+                            Vector2 avoidance = PredictiveAvoidanceVector(friendly, livingEnemies.Cast<Unit>().Concat(friendlies).ToList(), out var avoidTarget);
+                            friendly.HasAvoidanceTarget = avoidance != Vector2.Zero;
+                            friendly.AvoidanceTarget = avoidTarget;
+                            friendly.Velocity = SafeNormalize(seekVector + separationVector + avoidance) * friendly.Speed;
                         }
                     }
-                    else
-                    {
-                        Vector2 seekVector = SafeNormalize(attackPosition - friendly.Position);
-                        Vector2 separationVector = CalculateSeparationVector(friendly, friendlies, 80f);
-                        Vector2 avoidance = PredictiveAvoidanceVector(friendly, livingEnemies.Cast<Unit>().Concat(friendlies).ToList(), out var avoidTarget);
-                        friendly.HasAvoidanceTarget = avoidance != Vector2.Zero;
-                        friendly.AvoidanceTarget = avoidTarget;
-                        friendly.Velocity = SafeNormalize(seekVector + separationVector + avoidance) * friendly.Speed;
-                    }
+                    // 이동 로직은 대형 유지 파트에서 이미 처리되었으므로 여기서는 속도만 결정
+                    friendly.Position += friendly.Velocity;
+                    UpdateUnitRotation(friendly);
                 }
-                friendly.Position += friendly.Velocity;
-                UpdateUnitRotation(friendly);
             }
         }
         else
         {
+            // --- 상태 초기화 ---
+            _squadTarget = null;
+            _isReadyToAttack = false;
+            // -----------------
+
             var formationOffsets = new List<Vector2> { new(0, 0), new(0, 90), new(-80, -45), new(-80, 135) };
             var leader = friendlies[0];
 
