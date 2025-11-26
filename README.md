@@ -43,7 +43,7 @@ dotnet run
 생성된 이미지 프레임들을 동영상으로 변환하려면, [FFmpeg](https://ffmpeg.org/)가 설치되어 있어야 합니다. 다음 명령어를 프로젝트 루트 디렉터리에서 실행하여 `output.mp4`라는 이름의 동영상 파일을 생성할 수 있습니다:
 
 ```bash
-ffmpeg -framerate 60 -i output/frame_%04d.png -c:v libx24 -pix_fmt yuv420p output.mp4
+ffmpeg -framerate 60 -i output/frame_%04d.png -c:v libx264 -pix_fmt yuv420p output.mp4
 ```
 
 ## 의존성
