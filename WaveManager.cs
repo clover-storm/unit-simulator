@@ -209,11 +209,13 @@ public class Renderer
 
     private void DrawUnits(IImageProcessingContext ctx, List<Unit> friendlies, List<Unit> enemies)
     {
-        DrawFriendlyUnits(ctx, friendlies);
-        DrawEnemyUnits(ctx, enemies);
+        var labelQueue = new List<(Unit unit, Color color)>();
+        DrawFriendlyUnits(ctx, friendlies, labelQueue);
+        DrawEnemyUnits(ctx, enemies, labelQueue);
+        DrawUnitLabels(ctx, labelQueue);
     }
 
-    private void DrawFriendlyUnits(IImageProcessingContext ctx, List<Unit> friendlies)
+    private void DrawFriendlyUnits(IImageProcessingContext ctx, List<Unit> friendlies, List<(Unit unit, Color color)> labelQueue)
     {
         foreach (var friendly in friendlies)
         {
@@ -223,7 +225,7 @@ public class Renderer
             DrawMovementDebug(ctx, friendly);
             DrawAttackSlots(ctx, friendly);
             DrawRecentAttacks(ctx, friendly);
-            DrawUnitLabel(ctx, friendly, Color.White);
+            labelQueue.Add((friendly, Color.White));
         }
     }
 
@@ -253,7 +255,7 @@ public class Renderer
         }
     }
 
-    private void DrawEnemyUnits(IImageProcessingContext ctx, List<Unit> enemies)
+    private void DrawEnemyUnits(IImageProcessingContext ctx, List<Unit> enemies, List<(Unit unit, Color color)> labelQueue)
     {
         foreach (var enemy in enemies)
         {
@@ -265,7 +267,7 @@ public class Renderer
             }
 
             DrawMovementDebug(ctx, enemy);
-            DrawUnitLabel(ctx, enemy, Color.White);
+            labelQueue.Add((enemy, Color.White));
         }
     }
 
@@ -295,6 +297,14 @@ public class Renderer
                     ctx.DrawText(textOptions, info, Color.Gold);
                 }
             }
+        }
+    }
+
+    private void DrawUnitLabels(IImageProcessingContext ctx, List<(Unit unit, Color color)> labelQueue)
+    {
+        foreach (var (unit, color) in labelQueue)
+        {
+            DrawUnitLabel(ctx, unit, color);
         }
     }
 

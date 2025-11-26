@@ -94,7 +94,6 @@ public class SquadBehavior
 
             Vector2 toFormation = formationTarget - follower.Position;
             float distanceToSlot = toFormation.Length();
-            float rampedSpeed = follower.Speed * Math.Clamp(distanceToSlot / Constants.FORMATION_SPEED_SCALE, 0.1f, 1.0f);
 
             follower.HasAvoidanceTarget = false;
             follower.AvoidanceTarget = Vector2.Zero;
@@ -102,7 +101,7 @@ public class SquadBehavior
             follower.ClearAvoidancePath();
             follower.CurrentDestination = formationTarget;
 
-            follower.Velocity = distanceToSlot < 3f ? Vector2.Zero : MathUtils.SafeNormalize(toFormation) * rampedSpeed;
+            follower.Velocity = distanceToSlot < 3f ? Vector2.Zero : MathUtils.SafeNormalize(toFormation) * follower.Speed;
             follower.Position += follower.Velocity;
             follower.UpdateRotation();
         }
@@ -275,14 +274,13 @@ public class SquadBehavior
 
             Vector2 toFormation = formationTarget - follower.Position;
             float distanceToSlot = toFormation.Length();
-            float rampedSpeed = follower.Speed * Math.Clamp(distanceToSlot / Constants.FORMATION_SPEED_SCALE, 0.1f, 1.0f);
 
             follower.HasAvoidanceTarget = false;
             follower.AvoidanceTarget = Vector2.Zero;
             follower.AvoidanceThreat = null;
             follower.CurrentDestination = formationTarget;
 
-            follower.Velocity = distanceToSlot < 3f ? Vector2.Zero : MathUtils.SafeNormalize(toFormation) * rampedSpeed;
+            follower.Velocity = distanceToSlot < 3f ? Vector2.Zero : MathUtils.SafeNormalize(toFormation) * follower.Speed;
             follower.Position += follower.Velocity;
             follower.UpdateRotation();
         }

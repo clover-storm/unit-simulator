@@ -31,6 +31,7 @@ public class Unit
     public Vector2 AvoidanceTarget { get; set; } = Vector2.Zero;
     public bool HasAvoidanceTarget { get; set; }
     public int FramesSinceSlotEvaluation { get; set; }
+    public int FramesSinceTargetEvaluation { get; set; }
 
     private readonly List<Vector2> _avoidancePath = new();
     private int _avoidancePathIndex = 0;

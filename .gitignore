@@ -1,3 +1,5 @@
 # .NET Core build output folders
 bin/
 obj/
+output/
+output/debug/

@@ -33,11 +33,34 @@ public class EnemyBehavior
     private void UpdateEnemyTarget(Unit enemy, List<Unit> livingFriendlies)
     {
         var previousTarget = enemy.Target;
+        enemy.FramesSinceTargetEvaluation++;
 
-        if (enemy.Target == null || enemy.Target.IsDead)
+        bool needsTarget = enemy.Target == null || enemy.Target.IsDead;
+
+        if (needsTarget)
         {
             if (enemy.Target != null) enemy.Target.ReleaseSlot(enemy);
-            enemy.Target = livingFriendlies.OrderBy(f => Vector2.Distance(enemy.Position, f.Position)).FirstOrDefault();
+            enemy.Target = SelectBestTarget(enemy, livingFriendlies);
+            enemy.FramesSinceTargetEvaluation = 0;
+        }
+        else
+        {
+            var best = SelectBestTarget(enemy, livingFriendlies);
+            if (best != null && best != enemy.Target)
+            {
+                var currentTarget = enemy.Target;
+                float currentScore = currentTarget != null ? EvaluateTargetScore(enemy, currentTarget) : float.MaxValue;
+                float bestScore = EvaluateTargetScore(enemy, best);
+                bool intervalElapsed = enemy.FramesSinceTargetEvaluation >= Constants.TARGET_REEVALUATE_INTERVAL_FRAMES;
+                bool clearlyBetter = bestScore + Constants.TARGET_SWITCH_MARGIN < currentScore;
+
+                if (intervalElapsed || clearlyBetter)
+                {
+                    if (currentTarget != null) currentTarget.ReleaseSlot(enemy);
+                    enemy.Target = best;
+                    enemy.FramesSinceTargetEvaluation = 0;
+                }
+            }
         }
 
         if (enemy.Target != null && enemy.Target != previousTarget)
@@ -110,7 +133,8 @@ public class EnemyBehavior
         Vector2 desiredDirection = targetPosition - enemy.Position;
         Vector2 desiredForward = MathUtils.SafeNormalize(desiredDirection);
         Vector2 separationVector = MathUtils.CalculateSeparationVector(enemy, enemies, Constants.SEPARATION_RADIUS);
-        Vector2 friendlyAvoidance = AvoidanceSystem.PredictiveAvoidanceVector(enemy, livingFriendlies, desiredForward, out var avoidTarget, out var isDetouring, out var avoidanceThreat);
+        var avoidanceCandidates = livingFriendlies.Cast<Unit>().Concat(enemies.Where(e => e != enemy && !e.IsDead)).ToList();
+        Vector2 friendlyAvoidance = AvoidanceSystem.PredictiveAvoidanceVector(enemy, avoidanceCandidates, desiredForward, out var avoidTarget, out var isDetouring, out var avoidanceThreat);
 
         bool hasWaypoint = enemy.TryGetNextAvoidanceWaypoint(out var waypoint);
         Vector2 steeringTarget = hasWaypoint ? waypoint : targetPosition;
@@ -129,5 +153,30 @@ public class EnemyBehavior
         Vector2 steeringDir = MathUtils.SafeNormalize(steeringTarget - enemy.Position);
         Vector2 finalDir = MathUtils.SafeNormalize(steeringDir + separationVector + friendlyAvoidance);
         enemy.Velocity = finalDir * enemy.Speed;
+    }
+
+    private Unit? SelectBestTarget(Unit enemy, List<Unit> candidates)
+    {
+        Unit? best = null;
+        float bestScore = float.MaxValue;
+        foreach (var candidate in candidates)
+        {
+            if (candidate.IsDead) continue;
+            float score = EvaluateTargetScore(enemy, candidate);
+            if (score < bestScore)
+            {
+                bestScore = score;
+                best = candidate;
+            }
+        }
+        return best;
+    }
+
+    private float EvaluateTargetScore(Unit enemy, Unit candidate)
+    {
+        float distance = Vector2.Distance(enemy.Position, candidate.Position);
+        int occupied = candidate.AttackSlots.Count(s => s != null);
+        float crowdPenalty = occupied * Constants.TARGET_CROWD_PENALTY_PER_ATTACKER;
+        return distance + crowdPenalty;
     }
 }

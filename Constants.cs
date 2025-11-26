@@ -27,10 +27,14 @@ public static class Constants
     public const float FORMATION_THRESHOLD = 20f;
     public const float SEPARATION_RADIUS = 120f;
     public const float FRIENDLY_SEPARATION_RADIUS = 80f;
-    public const float FORMATION_SPEED_SCALE = 150f;
     
     // Wave settings
     public const int MAX_WAVES = 3;
+
+    // Targeting settings (enemy)
+    public const int TARGET_REEVALUATE_INTERVAL_FRAMES = 45;
+    public const float TARGET_SWITCH_MARGIN = 15f;
+    public const float TARGET_CROWD_PENALTY_PER_ATTACKER = 25f;
     
     // Avoidance settings
     public const float AVOIDANCE_ANGLE_STEP = MathF.PI / 8f; // 22.5 degrees
