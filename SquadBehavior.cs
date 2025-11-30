@@ -200,7 +200,7 @@ public class SquadBehavior
             friendly.CurrentDestination = friendly.Position;
             if (friendly.AttackCooldown <= 0)
             {
-                friendly.Target.TakeDamage();
+                friendly.Target.TakeDamage(Constants.FRIENDLY_ATTACK_DAMAGE);
                 friendly.AttackCooldown = Constants.ATTACK_COOLDOWN;
                 friendly.RecentAttacks.Add(new Tuple<Unit, int>(friendly.Target, 5));
             }

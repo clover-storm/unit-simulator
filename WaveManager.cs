@@ -32,7 +32,7 @@ public class WaveManager
         {
             foreach (var pos in spawns)
             {
-                enemySquad.Add(new Unit(pos, Constants.UNIT_RADIUS, 4.0f, 0.1f, UnitRole.Melee, 5, _enemyIdProvider(), UnitFaction.Enemy));
+                enemySquad.Add(new Unit(pos, Constants.UNIT_RADIUS, 4.0f, 0.1f, UnitRole.Melee, Constants.ENEMY_HP, _enemyIdProvider(), UnitFaction.Enemy));
             }
         }
     }

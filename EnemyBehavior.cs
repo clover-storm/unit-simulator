@@ -14,6 +14,8 @@ public class EnemyBehavior
         {
             if (enemy.IsDead) continue;
 
+            enemy.AttackCooldown = Math.Max(0, enemy.AttackCooldown - 1);
+
             if (enemy.HP <= 0)
             {
                 enemy.IsDead = true;
@@ -153,6 +155,23 @@ public class EnemyBehavior
         Vector2 steeringDir = MathUtils.SafeNormalize(steeringTarget - enemy.Position);
         Vector2 finalDir = MathUtils.SafeNormalize(steeringDir + separationVector + friendlyAvoidance);
         enemy.Velocity = finalDir * enemy.Speed;
+
+        TryAttack(enemy, target);
+    }
+
+    private void TryAttack(Unit attacker, Unit target)
+    {
+        if (target.IsDead) return;
+        float distanceToTarget = Vector2.Distance(attacker.Position, target.Position);
+        if (distanceToTarget <= attacker.AttackRange)
+        {
+            attacker.Velocity = Vector2.Zero;
+            if (attacker.AttackCooldown <= 0)
+            {
+                target.TakeDamage(Constants.ENEMY_ATTACK_DAMAGE);
+                attacker.AttackCooldown = Constants.ATTACK_COOLDOWN;
+            }
+        }
     }
 
     private Unit? SelectBestTarget(Unit enemy, List<Unit> candidates)

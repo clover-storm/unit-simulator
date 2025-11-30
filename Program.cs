@@ -57,7 +57,7 @@ public class Program
 
     private static Unit CreateFriendlyUnit(Vector2 position, UnitRole role)
     {
-        return new(position, Constants.UNIT_RADIUS, 4.5f, 0.08f, role, 100, GetNextFriendlyId(), UnitFaction.Friendly);
+        return new(position, Constants.UNIT_RADIUS, 4.5f, 0.08f, role, Constants.FRIENDLY_HP, GetNextFriendlyId(), UnitFaction.Friendly);
     }
 
     private static bool HandleWaveProgression(List<Unit> enemySquad, List<Unit> friendlySquad, WaveManager waveManager)

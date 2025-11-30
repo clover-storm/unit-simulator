@@ -15,9 +15,13 @@ public static class Constants
     public const int NUM_ATTACK_SLOTS = 8;
     public const float SLOT_REEVALUATE_DISTANCE = 40f;
     public const int SLOT_REEVALUATE_INTERVAL_FRAMES = 60;
+    public const int FRIENDLY_HP = 100;
+    public const int ENEMY_HP = 10;
     
     // Combat settings
     public const float ATTACK_COOLDOWN = 30f;
+    public const int FRIENDLY_ATTACK_DAMAGE = 1;
+    public const int ENEMY_ATTACK_DAMAGE = 1;
     public const int MELEE_RANGE_MULTIPLIER = 3;
     public const int RANGED_RANGE_MULTIPLIER = 6;
     public const float ENGAGEMENT_TRIGGER_DISTANCE_MULTIPLIER = 1.5f;
