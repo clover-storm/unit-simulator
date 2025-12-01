@@ -5,6 +5,9 @@ namespace UnitSimulator.GoogleSheets;
 /// </summary>
 public static class SheetToXmlCli
 {
+    private const string DefaultOutputDir = "xml_output";
+    private const string DefaultCredentialsFile = "credentials.json";
+
     /// <summary>
     /// CLI 명령을 실행합니다.
     /// </summary>
@@ -51,9 +54,9 @@ public static class SheetToXmlCli
         }
 
         // 기본값 설정
-        outputDirectory ??= Path.Combine(Directory.GetCurrentDirectory(), "xml_output");
+        outputDirectory ??= Path.Combine(Directory.GetCurrentDirectory(), DefaultOutputDir);
         credentialsPath ??= Environment.GetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS")
-                           ?? Path.Combine(Directory.GetCurrentDirectory(), "credentials.json");
+                           ?? Path.Combine(Directory.GetCurrentDirectory(), DefaultCredentialsFile);
 
         try
         {

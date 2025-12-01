@@ -99,7 +99,8 @@ public static partial class XmlConverter
             writer.WriteStartElement("Row");
             writer.WriteAttributeString("index", rowIndex.ToString());
 
-            for (var colIndex = 0; colIndex < headers.Count || colIndex < row.Count; colIndex++)
+            var maxColumns = Math.Max(headers.Count, row.Count);
+            for (var colIndex = 0; colIndex < maxColumns; colIndex++)
             {
                 var headerName = colIndex < headers.Count ? headers[colIndex] : $"Column{colIndex + 1}";
                 var elementName = GetValidXmlElementName(headerName);
