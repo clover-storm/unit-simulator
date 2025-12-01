@@ -24,8 +24,10 @@ public class GoogleSheetsService : IDisposable
         if (!File.Exists(credentialsPath))
             throw new FileNotFoundException($"Credentials file not found: {credentialsPath}");
 
+        // Using stream-based approach to read credentials file safely
+        // Note: GoogleCredential.FromStream is deprecated but CredentialFactory is not yet widely adopted
 #pragma warning disable CS0618 // Type or member is obsolete
-        using var stream = new FileStream(credentialsPath, FileMode.Open, FileAccess.Read);
+        using var stream = new FileStream(credentialsPath, FileMode.Open, FileAccess.Read, FileShare.Read);
         var credential = GoogleCredential.FromStream(stream)
             .CreateScoped(SheetsService.Scope.SpreadsheetsReadonly);
 #pragma warning restore CS0618

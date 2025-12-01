@@ -426,8 +426,7 @@ internal class MainMenuCommands : CommandGroup
             }
 
             var rows = new List<IList<object>>();
-            var headers = new List<object>();
-            var headerSet = false;
+            List<object>? headers = null;
 
             foreach (var item in root.EnumerateArray())
             {
@@ -438,7 +437,13 @@ internal class MainMenuCommands : CommandGroup
 
                 foreach (var prop in item.EnumerateObject())
                 {
-                    if (!headerSet)
+                    if (headers == null)
+                    {
+                        headers = new List<object>();
+                    }
+                    
+                    // Only add headers on the first row
+                    if (rows.Count == 0)
                     {
                         headers.Add(prop.Name);
                     }
@@ -455,13 +460,14 @@ internal class MainMenuCommands : CommandGroup
                     row.Add(value);
                 }
 
-                if (!headerSet)
+                // Add headers as first row only once
+                if (rows.Count == 0 && headers != null)
                 {
-                    rows.Add(headers.Cast<object>().ToList());
-                    headerSet = true;
+                    rows.Add(headers);
                 }
-                rows.Add(row.Cast<object>().ToList());
+                rows.Add(row);
             }
+
 
             return rows.Count > 0 ? new SheetData(sheetName, rows) : null;
         }

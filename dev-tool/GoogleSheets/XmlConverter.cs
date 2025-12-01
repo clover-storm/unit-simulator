@@ -10,6 +10,8 @@ namespace AvalonDevTool.GoogleSheets;
 /// </summary>
 public static partial class XmlConverter
 {
+    private const string DefaultColumnName = "Column";
+    private const string DefaultElementName = "Element";
     /// <summary>
     /// SheetData를 XML 문자열로 변환합니다.
     /// </summary>
@@ -125,7 +127,7 @@ public static partial class XmlConverter
     {
         ArgumentNullException.ThrowIfNull(sheetData);
 
-        var headers = sheetData.Headers.Select(h => h?.ToString() ?? "Column").ToList();
+        var headers = GetHeaders(sheetData);
         var rows = new List<Dictionary<string, object?>>();
 
         foreach (var row in sheetData.DataRows)
@@ -211,7 +213,7 @@ public static partial class XmlConverter
         writer.WriteStartDocument();
         writer.WriteStartElement(rootElement);
 
-        var headers = sheetData.Headers.Select(h => h?.ToString() ?? "Column").ToList();
+        var headers = GetHeaders(sheetData);
 
         // 각 데이터 행 처리
         var rowIndex = 0;
@@ -223,7 +225,7 @@ public static partial class XmlConverter
             var maxColumns = Math.Max(headers.Count, row.Count);
             for (var colIndex = 0; colIndex < maxColumns; colIndex++)
             {
-                var headerName = colIndex < headers.Count ? headers[colIndex] : $"Column{colIndex + 1}";
+                var headerName = colIndex < headers.Count ? headers[colIndex] : $"{DefaultColumnName}{colIndex + 1}";
                 var elementName = GetValidXmlElementName(headerName);
                 var value = colIndex < row.Count ? row[colIndex]?.ToString() ?? "" : "";
 
@@ -239,12 +241,20 @@ public static partial class XmlConverter
     }
 
     /// <summary>
+    /// SheetData에서 헤더 목록을 가져옵니다.
+    /// </summary>
+    private static List<string> GetHeaders(SheetData sheetData)
+    {
+        return sheetData.Headers.Select(h => h?.ToString() ?? DefaultColumnName).ToList();
+    }
+
+    /// <summary>
     /// 문자열을 유효한 XML 요소 이름으로 변환합니다.
     /// </summary>
     private static string GetValidXmlElementName(string name)
     {
         if (string.IsNullOrWhiteSpace(name))
-            return "Element";
+            return DefaultElementName;
 
         // 공백을 언더스코어로 대체
         var result = name.Trim().Replace(' ', '_');
@@ -264,7 +274,7 @@ public static partial class XmlConverter
             result = "_" + result;
         }
 
-        return string.IsNullOrEmpty(result) ? "Element" : result;
+        return string.IsNullOrEmpty(result) ? DefaultElementName : result;
     }
 
     /// <summary>
