@@ -13,6 +13,7 @@
     *   **비전투 시**: 적이 없을 경우, 분대는 리더를 중심으로 지정된 대형을 유지하며 목표 지점으로 이동합니다.
 *   **다중 웨이브**: 시뮬레이션은 여러 웨이브의 적들을 순차적으로 생성하여, 모든 웨이브를 성공적으로 막아내는 것을 목표로 합니다.
 *   **시각화**: 전체 시뮬레이션 과정은 이미지 프레임으로 렌더링되어 `output` 폴더에 저장됩니다. 이를 통해 각 유닛의 움직임과 전투 상황을 시각적으로 분석할 수 있습니다.
+*   **Google Sheets to XML 변환**: Google Sheets 스프레드시트의 데이터를 XML 파일로 변환하는 기능을 제공합니다. CLI를 통해 간편하게 사용할 수 있습니다.
 
 ## 시작하기
 
@@ -46,12 +47,44 @@ dotnet run
 ffmpeg -framerate 60 -i output/frame_%04d.png -c:v libx264 -pix_fmt yuv420p output.mp4
 ```
 
+### Google Sheets to XML 변환
+
+Google Sheets 스프레드시트의 데이터를 XML 파일로 변환하려면 `sheet-to-xml` 명령어를 사용합니다:
+
+```bash
+dotnet run -- sheet-to-xml --sheet-id <SPREADSHEET_ID> --output <OUTPUT_DIR>
+```
+
+**옵션:**
+- `--sheet-id, -s <ID>`: Google Spreadsheet ID (필수, URL에서 확인 가능)
+- `--output, -o <DIR>`: XML 파일을 저장할 디렉토리 (기본값: ./xml_output)
+- `--credentials, -c <PATH>`: Google 서비스 계정 인증 JSON 파일 경로 (기본값: GOOGLE_APPLICATION_CREDENTIALS 환경 변수 또는 ./credentials.json)
+- `--help, -h`: 도움말 표시
+
+**예시:**
+```bash
+# 기본 사용법
+dotnet run -- sheet-to-xml -s 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms
+
+# 출력 디렉토리 및 인증 파일 지정
+dotnet run -- sheet-to-xml -s 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms -o ./my_xml -c ./my-credentials.json
+```
+
+**사전 준비:**
+1. [Google Cloud Console](https://console.cloud.google.com/)에서 프로젝트 생성
+2. Google Sheets API 활성화
+3. 서비스 계정 생성 및 JSON 키 파일 다운로드
+4. 스프레드시트에 서비스 계정 이메일 공유 권한 부여
+
+서비스 계정 인증 파일 템플릿은 `credentials.example.json`을 참조하세요.
+
 ## 의존성
 
 이 프로젝트는 다음의 .NET 라이브러리를 사용합니다:
 
 *   **SixLabors.ImageSharp**: 이미지 생성 및 처리를 위한 라이브러리입니다.
 *   **SixLabors.ImageSharp.Drawing**: 이미지에 도형과 텍스트를 그리기 위한 라이브러리입니다.
+*   **Google.Apis.Sheets.v4**: Google Sheets API 접근을 위한 라이브러리입니다.
 
 이 라이브러리들은 `dotnet restore` 명령어를 통해 자동으로 설치됩니다.
 

@@ -3,3 +3,7 @@ bin/
 obj/
 output/
 output/debug/
+
+# Google credentials (do not commit actual credentials)
+credentials.json
+xml_output/
