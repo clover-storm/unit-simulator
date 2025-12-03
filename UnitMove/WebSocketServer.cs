@@ -17,6 +17,7 @@ public class WebSocketServer : IDisposable
     private readonly object _clientsLock = new();
     private readonly CancellationTokenSource _cts = new();
     private readonly JsonSerializerOptions _jsonOptions;
+    private readonly int _port;
     private bool _isRunning;
     private bool _disposed;
     private Task? _simulationTask;
@@ -24,6 +25,7 @@ public class WebSocketServer : IDisposable
     public WebSocketServer(SimulatorCore simulator, int port = 5000)
     {
         _simulator = simulator;
+        _port = port;
         _httpListener = new HttpListener();
         _httpListener.Prefixes.Add($"http://localhost:{port}/");
         
@@ -43,8 +45,8 @@ public class WebSocketServer : IDisposable
         
         _isRunning = true;
         _httpListener.Start();
-        Console.WriteLine($"[WebSocketServer] Started on http://localhost:5000/");
-        Console.WriteLine("[WebSocketServer] WebSocket endpoint: ws://localhost:5000/ws");
+        Console.WriteLine($"[WebSocketServer] Started on http://localhost:{_port}/");
+        Console.WriteLine($"[WebSocketServer] WebSocket endpoint: ws://localhost:{_port}/ws");
 
         while (_isRunning && !_cts.Token.IsCancellationRequested)
         {
@@ -532,10 +534,20 @@ public class WebSocketServer : IDisposable
     /// </summary>
     public void Stop()
     {
+        if (!_isRunning) return;
+        
         _isRunning = false;
         _cts.Cancel();
         _simulator.Stop();
-        _httpListener.Stop();
+        
+        try
+        {
+            if (_httpListener.IsListening)
+            {
+                _httpListener.Stop();
+            }
+        }
+        catch { }
         
         lock (_clientsLock)
         {
@@ -543,7 +555,10 @@ public class WebSocketServer : IDisposable
             {
                 try
                 {
-                    client.CloseAsync(WebSocketCloseStatus.NormalClosure, "Server shutting down", CancellationToken.None).Wait();
+                    if (client.State == WebSocketState.Open)
+                    {
+                        client.CloseAsync(WebSocketCloseStatus.NormalClosure, "Server shutting down", CancellationToken.None).Wait(1000);
+                    }
                     client.Dispose();
                 }
                 catch { }
@@ -559,7 +574,12 @@ public class WebSocketServer : IDisposable
         
         Stop();
         _cts.Dispose();
-        _httpListener.Close();
+        
+        try
+        {
+            _httpListener.Close();
+        }
+        catch { }
     }
 
     /// <summary>
