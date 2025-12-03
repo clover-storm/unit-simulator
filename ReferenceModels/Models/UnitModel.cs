@@ -54,7 +54,8 @@ namespace ReferenceModels.Models
         public float AttackRange { get; set; }
 
         /// <summary>
-        /// 유닛의 역할 (Melee, Ranged)
+        /// 유닛의 역할. 유효 값: "Melee" (근접), "Ranged" (원거리).
+        /// Google Sheets 및 XML 직렬화와의 호환성을 위해 문자열로 저장됩니다.
         /// </summary>
         [SheetColumn("Role")]
         [XmlElement("Role")]
