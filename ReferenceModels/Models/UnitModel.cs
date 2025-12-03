@@ -31,5 +31,33 @@ namespace ReferenceModels.Models
         [SheetColumn("SpawnTime")]
         [XmlElement("SpawnTime")]
         public DateTime? SpawnTime { get; set; }
+
+        /// <summary>
+        /// 유닛의 충돌 반지름 (원 크기)
+        /// </summary>
+        [SheetColumn("Radius")]
+        [XmlElement("Radius")]
+        public float Radius { get; set; }
+
+        /// <summary>
+        /// 유닛의 회전 속도 (라디안/프레임)
+        /// </summary>
+        [SheetColumn("TurnSpeed")]
+        [XmlElement("TurnSpeed")]
+        public float TurnSpeed { get; set; }
+
+        /// <summary>
+        /// 유닛의 공격 사거리
+        /// </summary>
+        [SheetColumn("AttackRange")]
+        [XmlElement("AttackRange")]
+        public float AttackRange { get; set; }
+
+        /// <summary>
+        /// 유닛의 역할 (Melee, Ranged)
+        /// </summary>
+        [SheetColumn("Role")]
+        [XmlElement("Role")]
+        public string? Role { get; set; }
     }
 }
