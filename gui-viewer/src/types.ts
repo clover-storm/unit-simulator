@@ -98,6 +98,8 @@ export type CommandType =
   | 'start'
   | 'stop'
   | 'step'
+  | 'step_back'
+  | 'seek'
   | 'reset';
 
 export interface Command {
@@ -106,4 +108,5 @@ export interface Command {
   faction?: 'Friendly' | 'Enemy';
   position?: SerializableVector2;
   health?: number;
+  frameNumber?: number;
 }

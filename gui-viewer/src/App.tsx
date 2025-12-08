@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Command, UnitStateData } from './types';
 import { useWebSocket } from './hooks/useWebSocket';
 import SimulationCanvas from './components/SimulationCanvas';
@@ -9,12 +9,15 @@ import SimulationControls from './components/SimulationControls';
 function App() {
   const [selectedUnitId, setSelectedUnitId] = useState<number | null>(null);
   const [selectedFaction, setSelectedFaction] = useState<'Friendly' | 'Enemy' | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [seekFrameInput, setSeekFrameInput] = useState<string>('0');
 
   const { 
     frameData, 
     connectionStatus, 
     sendCommand, 
-    error 
+    error,
+    lastMessageType,
   } = useWebSocket('ws://localhost:5000/ws');
 
   const handleUnitSelect = useCallback((unit: UnitStateData | null) => {
@@ -30,6 +33,91 @@ function App() {
   const handleSendCommand = useCallback((command: Command) => {
     sendCommand(command);
   }, [sendCommand]);
+
+  // Keep play state in sync with connection and server completion
+  useEffect(() => {
+    if (connectionStatus !== 'connected') {
+      setIsPlaying(false);
+    }
+  }, [connectionStatus]);
+
+  useEffect(() => {
+    if (lastMessageType === 'simulation_complete' || lastMessageType === 'error') {
+      setIsPlaying(false);
+    }
+  }, [lastMessageType]);
+
+  useEffect(() => {
+    if (frameData) {
+      setSeekFrameInput(frameData.frameNumber.toString());
+    }
+  }, [frameData]);
+
+  const handlePlayPause = useCallback(() => {
+    if (connectionStatus !== 'connected') return;
+
+    if (isPlaying) {
+      sendCommand({ type: 'stop' });
+      setIsPlaying(false);
+    } else {
+      sendCommand({ type: 'start' });
+      setIsPlaying(true);
+    }
+  }, [connectionStatus, isPlaying, sendCommand]);
+
+  const handleStep = useCallback(() => {
+    if (connectionStatus !== 'connected') return;
+
+    if (isPlaying) {
+      // Pause before stepping to avoid concurrent play + step
+      sendCommand({ type: 'stop' });
+      setIsPlaying(false);
+    }
+    sendCommand({ type: 'step' });
+  }, [connectionStatus, isPlaying, sendCommand]);
+
+  const handleStepBack = useCallback(() => {
+    if (connectionStatus !== 'connected') return;
+
+    if (isPlaying) {
+      sendCommand({ type: 'stop' });
+      setIsPlaying(false);
+    }
+    sendCommand({ type: 'step_back' });
+  }, [connectionStatus, isPlaying, sendCommand]);
+
+  const handleSeek = useCallback(() => {
+    if (connectionStatus !== 'connected') return;
+    const target = parseInt(seekFrameInput, 10);
+    if (Number.isNaN(target) || target < 0) return;
+
+    if (isPlaying) {
+      sendCommand({ type: 'stop' });
+      setIsPlaying(false);
+    }
+    sendCommand({ type: 'seek', frameNumber: target });
+  }, [connectionStatus, isPlaying, seekFrameInput, sendCommand]);
+
+  const handleReset = useCallback(() => {
+    setIsPlaying(false);
+    sendCommand({ type: 'reset' });
+  }, [sendCommand]);
+
+  // Keyboard shortcuts for step/step back
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (connectionStatus !== 'connected') return;
+      if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        handleStep();
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        handleStepBack();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [connectionStatus, handleStep, handleStepBack]);
 
   const selectedUnit = frameData
     ? [...frameData.friendlyUnits, ...frameData.enemyUnits].find(
@@ -87,11 +175,15 @@ function App() {
           />
 
           <SimulationControls
-            onStart={() => handleSendCommand({ type: 'start' })}
-            onStop={() => handleSendCommand({ type: 'stop' })}
-            onStep={() => handleSendCommand({ type: 'step' })}
-            onReset={() => handleSendCommand({ type: 'reset' })}
+            onPlayPause={handlePlayPause}
+            onStep={handleStep}
+            onStepBack={handleStepBack}
+            onSeek={handleSeek}
+            seekValue={seekFrameInput}
+            onSeekValueChange={setSeekFrameInput}
+            onReset={handleReset}
             isConnected={connectionStatus === 'connected'}
+            isPlaying={isPlaying}
           />
         </div>
 

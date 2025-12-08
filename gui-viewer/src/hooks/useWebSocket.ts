@@ -8,12 +8,14 @@ export interface UseWebSocketResult {
   connectionStatus: ConnectionStatus;
   sendCommand: (command: Command) => void;
   error: string | null;
+  lastMessageType: WebSocketMessage['type'] | null;
 }
 
 export function useWebSocket(url: string): UseWebSocketResult {
   const [frameData, setFrameData] = useState<FrameData | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('disconnected');
   const [error, setError] = useState<string | null>(null);
+  const [lastMessageType, setLastMessageType] = useState<WebSocketMessage['type'] | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttempts = useRef(0);
@@ -39,6 +41,7 @@ export function useWebSocket(url: string): UseWebSocketResult {
       ws.onmessage = (event) => {
         try {
           const message: WebSocketMessage = JSON.parse(event.data);
+          setLastMessageType(message.type);
           
           switch (message.type) {
             case 'frame':
@@ -117,5 +120,6 @@ export function useWebSocket(url: string): UseWebSocketResult {
     connectionStatus,
     sendCommand,
     error,
+    lastMessageType,
   };
 }

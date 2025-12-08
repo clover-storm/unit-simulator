@@ -1,157 +1,115 @@
-# Development Infrastructure Rules
+# 개발 인프라 및 GUI 연동 가이드
 
-This document outlines the development guidelines and architectural decisions for maintaining the Unit Simulator and extending it with GUI tools.
+이 문서는 Unit Simulator 코어와 웹 기반 GUI 뷰어(편집 기능 포함)를 유지·확장할 때의 구조, 규칙, 그리고 실행 방법을 정리합니다. 기존 영문 내용을 한국어로 옮기고, 최근 실시간 플레이/일시정지(Play/Pause) 흐름을 반영했습니다.
 
-## Overview
+## 개요
 
-The Unit Simulator is designed as a core simulation engine that separates simulation logic from visualization. This separation allows for flexible integration with various front-end tools, including GUI applications and external visualization systems.
+- **코어/렌더링 분리**: `SimulatorCore`는 시뮬레이션 계산과 상태 관리만 담당하고, PNG 렌더링은 선택적(`RenderingEnabled`)입니다.
+- **프레임 데이터 우선**: 각 스텝은 JSON 형태의 `FrameData`를 생성하며, GUI·디버깅·재생에 활용합니다.
+- **확장성**: 콜백 인터페이스(`ISimulatorCallbacks`)를 통해 외부 툴이나 GUI가 이벤트를 구독하고 상태를 주입할 수 있습니다.
 
-## Architecture Principles
+## 아키텍처 원칙
 
-### 1. Separation of Concerns
+### 관심사 분리
 
-The simulator follows a clear separation between:
+- **시뮬레이션 로직 (코어)**: `SimulatorCore`가 유닛 행동, 웨이브, 상태를 모두 관리합니다.
+- **프레임 데이터 생성**: 렌더링과 무관하게 JSON 상태(`FrameData`)를 생성합니다.
+- **렌더링**: `Renderer`가 이미지(PNG)를 생성하며, 헤드리스 모드에서는 건너뜁니다.
 
-- **Simulation Logic (Core)**: The `SimulatorCore` handles all simulation computations, unit behaviors, and state management.
-- **Frame Data Generation**: Each frame produces a JSON representation of the simulation state, independent of rendering.
-- **Rendering**: The `Renderer` class is responsible for generating visual output (images) from frame data.
+### 핵심 컴포넌트
 
-This separation enables:
-- Running simulations without generating images (headless mode)
-- Replaying simulations from saved frame data
-- Integrating with external visualization tools
-- Debugging and analyzing simulation behavior through JSON data
+- **SimulatorCore**
+  - 상태 유지(유닛, 웨이브 등)
+  - 매 스텝 프레임 데이터 생성
+  - 콜백 지원으로 외부 연동
+  - JSON 상태 로드/주입, 런타임 수정 지원
+- **FrameData**
+  - 프레임 번호, 웨이브 정보, 유닛 상태 전체를 담은 직렬화 가능한 구조체
+- **콜백 인터페이스 (`ISimulatorCallbacks`)**
+  - `OnFrameGenerated`, `OnSimulationComplete`, `OnStateChanged`, `OnUnitEvent`
 
-### 2. Core Simulator Components
+### 프레임 데이터 vs 렌더링
 
-#### SimulatorCore
-The central component that manages the simulation loop and state:
-- Maintains simulation state (units, waves, etc.)
-- Generates frame data at each step
-- Supports callbacks for extensions and integrations
-- Allows loading state from JSON and resuming simulation
-- Enables runtime state injection (modifying unit states dynamically)
+- **프레임 데이터(JSON)**: 가볍고 빠르며 디버깅, 상태 보존/재생, 외부 시각화, 회귀 테스트에 사용
+- **렌더링(PNG)**: 시각화/데모용, 리소스 소모가 크므로 필요 시에만 활성화
 
-#### FrameData
-Data structures representing a complete simulation frame:
-- Frame number and wave information
-- Unit states (positions, health, targets, etc.)
-- Relationships between units (attack targets, slots, etc.)
-- Serializable to JSON for storage and replay
+## WebSocket 서버 & GUI 연동
 
-#### Callbacks Interface
-Extension point for integrating external systems:
-- `OnFrameGenerated`: Called after each frame is computed
-- `OnSimulationComplete`: Called when simulation finishes
-- `OnStateChanged`: Called when simulation state is modified
-- `OnUnitEvent`: Called for significant unit events (attack, death, etc.)
+- `Program --server`가 `WebSocketServer`를 띄우고, 렌더링은 기본 비활성화(`RenderingEnabled = false`)됩니다.
+- 엔드포인트:
+  - WebSocket: `ws://localhost:{port}/ws`
+  - 헬스 체크: `http://localhost:{port}/health`
+- **재생 루프**: `start` 명령 시 약 30fps 간격으로 `SimulatorCore.Step()`을 반복하며, 매 프레임을 GUI에 브로드캐스트합니다.
+- **일시정지/정지**: `stop` 명령은 재생 루프를 중단하고 코어를 멈춥니다. `reset`은 중단 후 초기화합니다.
+- **단일 스텝/역스텝/시킹**: `step`은 재생 중 눌러도 일시정지 후 1프레임 진행합니다. `step_back`은 프레임 히스토리(최대 약 5,000프레임)를 사용해 한 프레임 이전으로 이동합니다. `seek`은 프레임 번호로 점프하며, 히스토리에 없으면 목표까지 앞으로 계산합니다.
+- **브로드캐스트 정책**: 모든 프레임을 전송하여 GUI가 실시간으로 갱신됩니다(`OnFrameGenerated`에서 즉시 송신).
 
-### 3. Frame Data vs Rendering
+### 명령 프로토콜(요약)
 
-**Frame Data Generation** (JSON):
-- Contains all simulation state for a given frame
-- Lightweight and fast to generate
-- Used for:
-  - Debugging and analysis
-  - State persistence and replay
-  - External tool integration
-  - Simulation validation
+- `start`: 재생 시작(30fps 루프)
+- `stop`: 재생/시뮬레이션 중단
+- `step`: 1프레임 진행(재생 중 눌러도 일시정지 후 1프레임 진행)
+- `step_back`: 1프레임 이전 상태로 이동(히스토리 기반)
+- `reset`: 초기화 후 첫 프레임 상태로 복귀
+- `seek`: 특정 프레임 번호로 점프(히스토리 내 즉시 로드, 부족 시 앞으로 계산)
+- `move`/`set_health`/`kill`/`revive`: 특정 유닛 제어·수정
+- **캔버스 상호작용**: 드래그 패닝, 휠 줌 인/아웃, 클릭 이동/선택은 패닝/줌을 반영한 월드 좌표 기준으로 처리.
 
-**Image Rendering**:
-- Generates visual PNG frames from simulation state
-- More resource-intensive
-- Optional - can be disabled for performance
-- Useful for:
-  - Video generation
-  - Visual debugging
-  - Presentation/demonstration
+## GUI 뷰어(웹, Vite + React)
 
-## Extension Points
+- 기본 WebSocket 주소: `ws://localhost:5000/ws` (`gui-viewer/src/App.tsx`에서 변경 가능)
+- **컨트롤**: Play/Pause, Step(재생 중 눌러도 일시정지 후 1프레임 진행), Step Back(한 프레임 이전으로), Seek(프레임 번호로 점프), Reset. 비디오 플레이어처럼 동작합니다.
+- **캔버스 내 네비게이션**: 드래그로 패닝, 마우스 휠로 줌 인/아웃(MIN_ZOOM~MAX_ZOOM). 패닝/줌은 클릭 이동/유닛 선택 등 모든 상호작용에 반영되며, 그리드는 뷰포트 범위에 맞춰 동적으로 이어서 그려집니다.
+- **실행**:
+  1. `dotnet run --project UnitMove -- --server --port 5000`
+  2. `cd gui-viewer && npm install && npm run dev`
+  3. 브라우저 `http://localhost:5173` 접속 → 상단 상태가 Connected면 성공
 
-### Loading and Resuming Simulation
-
-The simulator supports loading a specific frame from JSON and resuming from that point:
+## 상태 주입/재생 예시
 
 ```csharp
-// Load simulation state from a saved frame
+// JSON에서 상태 복원
 var frameData = FrameData.LoadFromJsonFile("output/debug/frame_0100.json");
-
-// Create simulator and set state
 var simulator = new SimulatorCore();
 simulator.LoadState(frameData);
-
-// Resume simulation from this point
 simulator.Run(callbacks);
-```
 
-### Injecting State Changes
-
-External tools can modify simulation state at runtime:
-
-```csharp
-// Get a unit by ID and modify its state
-simulator.ModifyUnit(unitId, unit => {
-    unit.Position = newPosition;
-    unit.HP = newHP;
+// 런타임 상태 수정
+simulator.ModifyUnit(unitId, faction, unit => {
+    unit.HP = 50;
+    unit.CurrentDestination = new Vector2(300, 200);
 });
-
-// Inject a new enemy unit
-simulator.InjectUnit(newUnit);
-
-// Remove a unit
-simulator.RemoveUnit(unitId);
 ```
 
-### GUI Integration
+## 개발 가이드라인
 
-The `GuiIntegration` class provides a placeholder for connecting external GUI tools:
+1. **코어 로직 추가**: `SimulatorCore`/AI/웨이브 등 도메인 클래스에 구현.
+2. **프레임 데이터 확장**: 새 상태가 필요하면 `FrameData`/직렬화 추가.
+3. **콜백 확장**: 외부 연동이 필요하면 `ISimulatorCallbacks`에 이벤트 추가.
+4. **문서 갱신**: 새로운 연동점이나 흐름을 이 문서에 반영.
 
-```csharp
-// Register GUI callbacks
-var gui = new GuiIntegration();
-gui.OnFrameRequest = (frameNumber) => simulator.GetFrameData(frameNumber);
-gui.OnStateModification = (changes) => simulator.ApplyStateChanges(changes);
-gui.OnPlaybackControl = (action) => simulator.HandlePlaybackAction(action);
-```
+### 성능/테스트
 
-## Development Guidelines
+- 렌더링은 필요 시에만 켜고, 회귀는 JSON 프레임으로 비교.
+- 콜백 오버헤드를 줄이기 위해 필요한 이벤트만 송신.
 
-### Adding New Features
-
-1. **Core Logic**: Add new simulation logic to `SimulatorCore` or relevant behavior classes.
-2. **Frame Data**: Update `FrameData` models if new state needs to be captured.
-3. **Callbacks**: Add new callback types if external systems need to react to new events.
-4. **Documentation**: Update this document with new extension points.
-
-### Testing
-
-- Test simulation logic independently of rendering.
-- Use frame data JSON for regression testing.
-- Validate that state loading/resuming produces consistent results.
-
-### Performance Considerations
-
-- Frame data generation should be lightweight.
-- Expensive operations (like rendering) should be optional.
-- Consider batching callbacks to reduce overhead.
-
-## File Structure
+## 파일 구조(요약)
 
 ```
-UnitSimulator/
-├── SimulatorCore.cs       # Core simulation engine
-├── FrameData.cs           # Frame data models and serialization
-├── ISimulatorCallbacks.cs # Callback interfaces for extensions
-├── GuiIntegration.cs      # GUI integration placeholder
-├── Unit.cs                # Unit model and behavior
-├── SquadBehavior.cs       # Friendly squad AI
-├── EnemyBehavior.cs       # Enemy AI
-├── AvoidanceSystem.cs     # Collision avoidance
-├── WaveManager.cs         # Wave spawning and management
-├── Renderer.cs            # Image generation (separate from core)
-└── Constants.cs           # Configuration constants
+UnitMove/
+├── SimulatorCore.cs        # 핵심 시뮬레이션 엔진
+├── FrameData.cs            # 프레임 데이터/직렬화
+├── ISimulatorCallbacks.cs  # 콜백 인터페이스
+├── WebSocketServer.cs      # WebSocket 서버 (재생 루프 포함)
+├── Renderer.cs             # PNG 렌더링 (옵션)
+├── EnemyBehavior.cs, SquadBehavior.cs, AvoidanceSystem.cs 등
+└── Constants.cs            # 설정 상수
+gui-viewer/                 # Vite + React GUI (Play/Pause/Step/Reset 컨트롤)
 ```
 
-## Version History
+## 버전 히스토리(요약)
 
-- Initial version: Core simulator refactoring, frame data separation, callback system, GUI integration placeholder.
+- 초안: 코어/렌더링 분리, 프레임 데이터/콜백, GUI 연동 플레이스홀더.
+- 최신: WebSocket 서버에 실시간 재생 루프 도입, 프레임 전체 브로드캐스트, GUI Play/Pause/Step/Reset UX 추가.
+- 최신(업데이트1): Step 중 자동 일시정지, Step Back, Seek(프레임 점프) 지원, 프레임 히스토리 최대 약 5,000프레임 유지.
+- 최신(업데이트2): 캔버스 패닝(드래그), 줌 인/아웃(휠) 지원. 클릭 이동/선택은 현재 뷰(패닝/줌) 기준 월드 좌표로 처리.

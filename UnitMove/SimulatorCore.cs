@@ -186,6 +186,13 @@ public class SimulatorCore
     {
         try
         {
+            if (!_renderingEnabled)
+            {
+                // When rendering is off (e.g., WebSocket server mode), we don't need output dirs
+                Console.WriteLine("Rendering disabled; skipping output directory setup.");
+                return;
+            }
+
             var dirInfo = new DirectoryInfo(Constants.OUTPUT_DIRECTORY);
             if (dirInfo.Exists) dirInfo.Delete(true);
             dirInfo.Create();
@@ -457,7 +464,10 @@ public class SimulatorCore
     private void ReestablishTargetReferences()
     {
         var allUnits = _friendlySquad.Concat(_enemySquad).ToList();
-        var unitLookup = allUnits.ToDictionary(u => u.Id);
+        // Friendly/Enemy ID 시퀀스가 각각 시작되어 중복될 수 있으므로, 파벌+ID 조합으로 키를 만든다.
+        var unitLookup = allUnits.ToDictionary(
+            u => $"{u.Faction}-{u.Id}",
+            u => u);
 
         // Note: Target references would need to be reconstructed based on
         // saved target IDs. For now, targets will be re-acquired by the

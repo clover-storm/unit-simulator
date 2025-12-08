@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using System.Linq;
 
 namespace UnitSimulator;
 
@@ -20,7 +21,13 @@ public class WebSocketServer : IDisposable
     private readonly int _port;
     private bool _isRunning;
     private bool _disposed;
-    private Task? _simulationTask;
+    private Task? _playTask;
+    private CancellationTokenSource? _playCts;
+    private readonly List<FrameData> _frameHistory = new();
+    private readonly object _historyLock = new();
+    private const int MaxHistoryFrames = 5000;
+
+    private bool IsPlaying => _playTask != null && !_playTask.IsCompleted && _playCts is { IsCancellationRequested: false };
 
     public WebSocketServer(SimulatorCore simulator, int port = 5000)
     {
@@ -267,6 +274,20 @@ public class WebSocketServer : IDisposable
             case "step":
                 await StepSimulationAsync();
                 break;
+            case "step_back":
+                await StepBackAsync(client);
+                break;
+            case "seek":
+                if (commandData.TryGetProperty("frameNumber", out var frameElement) &&
+                    frameElement.TryGetInt32(out var frameNumber))
+                {
+                    await SeekAsync(client, frameNumber);
+                }
+                else
+                {
+                    await SendToClientAsync(client, "error", "Missing frameNumber for seek command");
+                }
+                break;
 
             case "reset":
                 ResetSimulation();
@@ -298,9 +319,9 @@ public class WebSocketServer : IDisposable
 
     private async Task StartSimulationAsync()
     {
-        if (_simulationTask != null && !_simulationTask.IsCompleted)
+        if (_playTask != null && !_playTask.IsCompleted)
         {
-            return; // Already running
+            return; // Already playing
         }
 
         if (!_simulator.IsInitialized)
@@ -308,29 +329,67 @@ public class WebSocketServer : IDisposable
             _simulator.Initialize();
         }
 
-        // Create a WebSocket callback handler that broadcasts frames
+        if (!_frameHistory.Any())
+        {
+            var initialFrame = _simulator.GetCurrentFrameData();
+            RecordFrame(initialFrame);
+        }
+
+        // Use callbacks that broadcast each frame
         var callbacks = new WebSocketCallbacks(this);
 
-        _simulationTask = Task.Run(() =>
+        _playCts?.Cancel();
+        _playCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+        var token = _playCts.Token;
+
+        _playTask = Task.Run(async () =>
         {
             try
             {
-                _simulator.Run(callbacks);
+                var frameDelay = TimeSpan.FromMilliseconds(33); // ~30fps playback
+
+                while (!token.IsCancellationRequested)
+                {
+                    var frameData = _simulator.Step(callbacks);
+
+                    if (frameData.AllWavesCleared || frameData.MaxFramesReached)
+                    {
+                        await BroadcastAsync("simulation_complete", new
+                        {
+                            finalFrame = _simulator.CurrentFrame,
+                            reason = frameData.AllWavesCleared ? "AllWavesCleared" : "MaxFramesReached"
+                        });
+                        break;
+                    }
+
+                    await Task.Delay(frameDelay, token);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected on pause/stop
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"[WebSocketServer] Simulation error: {ex.Message}");
             }
-        });
+            finally
+            {
+                _playTask = null;
+            }
+        }, token);
     }
 
     private void StopSimulation()
     {
+        _playCts?.Cancel();
         _simulator.Stop();
     }
 
     private async Task StepSimulationAsync()
     {
+        _playCts?.Cancel();
+
         if (!_simulator.IsInitialized)
         {
             _simulator.Initialize();
@@ -338,13 +397,22 @@ public class WebSocketServer : IDisposable
 
         var callbacks = new WebSocketCallbacks(this);
         _simulator.Step(callbacks);
-        await BroadcastFrameAsync();
     }
 
     private void ResetSimulation()
     {
+        _playCts?.Cancel();
         _simulator.Stop();
         _simulator.Reset();
+
+        lock (_historyLock)
+        {
+            _frameHistory.Clear();
+        }
+
+        // Seed history with the reset state for immediate seeking/backstep
+        var initialFrame = _simulator.GetCurrentFrameData();
+        RecordFrame(initialFrame);
     }
 
     private async Task HandleMoveCommandAsync(WebSocket client, JsonElement data)
@@ -488,12 +556,111 @@ public class WebSocketServer : IDisposable
     /// <summary>
     /// Broadcasts the current frame data to all connected clients.
     /// </summary>
-    public async Task BroadcastFrameAsync()
+    public Task BroadcastFrameAsync()
     {
-        if (!_simulator.IsInitialized) return;
+        if (!_simulator.IsInitialized) return Task.CompletedTask;
 
         var frameData = _simulator.GetCurrentFrameData();
-        await BroadcastAsync("frame", frameData);
+        RecordFrame(frameData);
+
+        return Task.CompletedTask;
+    }
+
+    private void RecordFrame(FrameData frameData)
+    {
+        lock (_historyLock)
+        {
+            _frameHistory.Add(frameData);
+            if (_frameHistory.Count > MaxHistoryFrames)
+            {
+                _frameHistory.RemoveAt(0);
+            }
+        }
+
+        // Fire-and-forget broadcast
+        Task.Run(async () => await BroadcastAsync("frame", frameData));
+    }
+
+    private FrameData? GetFrameFromHistory(int frameNumber)
+    {
+        lock (_historyLock)
+        {
+            return _frameHistory.LastOrDefault(f => f.FrameNumber == frameNumber);
+        }
+    }
+
+    private FrameData? GetLatestFrame()
+    {
+        lock (_historyLock)
+        {
+            return _frameHistory.LastOrDefault();
+        }
+    }
+
+    private async Task StepBackAsync(WebSocket client)
+    {
+        _playCts?.Cancel();
+
+        var targetFrame = Math.Max(0, _simulator.CurrentFrame - 1);
+        var frame = GetFrameFromHistory(targetFrame);
+
+        if (frame == null)
+        {
+            await SendToClientAsync(client, "error", $"No frame history for frame {targetFrame}");
+            return;
+        }
+
+        _simulator.LoadState(frame);
+        await BroadcastAsync("frame", frame);
+    }
+
+    private async Task SeekAsync(WebSocket client, int targetFrame)
+    {
+        if (targetFrame < 0)
+        {
+            await SendToClientAsync(client, "error", "frameNumber must be non-negative");
+            return;
+        }
+
+        _playCts?.Cancel();
+
+        var historyFrame = GetFrameFromHistory(targetFrame);
+        if (historyFrame != null)
+        {
+            _simulator.LoadState(historyFrame);
+            await BroadcastAsync("frame", historyFrame);
+            return;
+        }
+
+        if (!_simulator.IsInitialized)
+        {
+            _simulator.Initialize();
+        }
+
+        var callbacks = new WebSocketCallbacks(this);
+        FrameData? reached = null;
+
+        while (true)
+        {
+            var frameData = _simulator.Step(callbacks);
+            reached = frameData;
+
+            if (frameData.FrameNumber >= targetFrame ||
+                frameData.AllWavesCleared ||
+                frameData.MaxFramesReached)
+            {
+                break;
+            }
+        }
+
+        if (reached != null)
+        {
+            await BroadcastAsync("frame", reached);
+        }
+        else
+        {
+            await SendToClientAsync(client, "error", $"Unable to seek to frame {targetFrame}");
+        }
     }
 
     /// <summary>
@@ -538,6 +705,7 @@ public class WebSocketServer : IDisposable
         
         _isRunning = false;
         _cts.Cancel();
+        _playCts?.Cancel();
         _simulator.Stop();
         
         try
@@ -588,7 +756,6 @@ public class WebSocketServer : IDisposable
     private class WebSocketCallbacks : ISimulatorCallbacks
     {
         private readonly WebSocketServer _server;
-        private int _frameCount = 0;
 
         public WebSocketCallbacks(WebSocketServer server)
         {
@@ -597,13 +764,7 @@ public class WebSocketServer : IDisposable
 
         public void OnFrameGenerated(FrameData frameData)
         {
-            // Broadcast every 5th frame to reduce network traffic
-            // (simulation runs at 60fps, we broadcast at ~12fps)
-            _frameCount++;
-            if (_frameCount % 5 == 0)
-            {
-                Task.Run(async () => await _server.BroadcastAsync("frame", frameData));
-            }
+            _server.RecordFrame(frameData);
         }
 
         public void OnSimulationComplete(int finalFrameNumber, string reason)
