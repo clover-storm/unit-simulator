@@ -100,7 +100,8 @@ export type CommandType =
   | 'step'
   | 'step_back'
   | 'seek'
-  | 'reset';
+  | 'reset'
+  | 'get_session_log';
 
 export interface Command {
   type: CommandType;
@@ -109,4 +110,14 @@ export interface Command {
   position?: SerializableVector2;
   health?: number;
   frameNumber?: number;
+}
+
+// Session logging types
+export interface SessionSummary {
+  sessionId: string;
+  startTime: string;
+  endTime?: string;
+  duration: string;
+  totalEvents: number;
+  eventCounts: Record<string, number>;
 }
