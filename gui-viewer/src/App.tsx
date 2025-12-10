@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { Command, UnitStateData } from './types';
 import { useWebSocket } from './hooks/useWebSocket';
+import { downloadFrameLog } from './utils/frameLogDownload';
 import SimulationCanvas from './components/SimulationCanvas';
 import UnitStateViewer from './components/UnitStateViewer';
 import CommandPanel from './components/CommandPanel';
@@ -14,6 +15,7 @@ function App() {
 
   const { 
     frameData, 
+    frameLog,
     connectionStatus, 
     sendCommand, 
     error,
@@ -103,6 +105,10 @@ function App() {
     sendCommand({ type: 'reset' });
   }, [sendCommand]);
 
+  const handleDownloadFrameLog = useCallback(() => {
+    downloadFrameLog(frameLog);
+  }, [frameLog]);
+
   // Keyboard shortcuts for step/step back
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -129,17 +135,27 @@ function App() {
     <div className="app">
       <header className="header">
         <h1>Unit Simulator - GUI Viewer</h1>
-        <div className="connection-status">
-          <span 
-            className={`status-indicator ${connectionStatus}`}
-            title={connectionStatus}
-          />
-          <span>
-            {connectionStatus === 'connected' && 'Connected'}
-            {connectionStatus === 'disconnected' && 'Disconnected'}
-            {connectionStatus === 'connecting' && 'Connecting...'}
-          </span>
-          {error && <span style={{ color: '#f87171', marginLeft: '1rem' }}>{error}</span>}
+        <div className="header-controls">
+          <div className="connection-status">
+            <span 
+              className={`status-indicator ${connectionStatus}`}
+              title={connectionStatus}
+            />
+            <span>
+              {connectionStatus === 'connected' && 'Connected'}
+              {connectionStatus === 'disconnected' && 'Disconnected'}
+              {connectionStatus === 'connecting' && 'Connecting...'}
+            </span>
+            {error && <span style={{ color: '#f87171', marginLeft: '1rem' }}>{error}</span>}
+          </div>
+          <button
+            className="btn-secondary"
+            onClick={handleDownloadFrameLog}
+            disabled={frameLog.length === 0}
+            title={frameLog.length === 0 ? 'No frames to download' : `Download ${frameLog.length} frames as JSON`}
+          >
+            📥 Download Frames ({frameLog.length})
+          </button>
         </div>
       </header>
 

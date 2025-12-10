@@ -5,6 +5,7 @@ export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
 
 export interface UseWebSocketResult {
   frameData: FrameData | null;
+  frameLog: FrameData[];
   connectionStatus: ConnectionStatus;
   sendCommand: (command: Command) => void;
   error: string | null;
@@ -13,6 +14,7 @@ export interface UseWebSocketResult {
 
 export function useWebSocket(url: string): UseWebSocketResult {
   const [frameData, setFrameData] = useState<FrameData | null>(null);
+  const [frameLogMap, setFrameLogMap] = useState<Map<number, FrameData>>(new Map());
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('disconnected');
   const [error, setError] = useState<string | null>(null);
   const [lastMessageType, setLastMessageType] = useState<WebSocketMessage['type'] | null>(null);
@@ -45,7 +47,14 @@ export function useWebSocket(url: string): UseWebSocketResult {
           
           switch (message.type) {
             case 'frame':
-              setFrameData(message.data as FrameData);
+              const newFrameData = message.data as FrameData;
+              setFrameData(newFrameData);
+              // Add frame to log, replacing if it already exists
+              setFrameLogMap(prev => {
+                const updated = new Map(prev);
+                updated.set(newFrameData.frameNumber, newFrameData);
+                return updated;
+              });
               break;
             case 'state_change':
               // Could show a notification here
@@ -97,6 +106,21 @@ export function useWebSocket(url: string): UseWebSocketResult {
         data: command,
         timestamp: Date.now(),
       }));
+      
+      // When seeking, clean up frames after the target frame
+      if (command.type === 'seek' && command.frameNumber !== undefined) {
+        const targetFrame = command.frameNumber;
+        setFrameLogMap(prev => {
+          const updated = new Map(prev);
+          // Remove all frames with frameNumber > targetFrame
+          for (const frameNumber of updated.keys()) {
+            if (frameNumber > targetFrame) {
+              updated.delete(frameNumber);
+            }
+          }
+          return updated;
+        });
+      }
     } else {
       setError('Not connected to server');
     }
@@ -115,8 +139,14 @@ export function useWebSocket(url: string): UseWebSocketResult {
     };
   }, [connect]);
 
+  // Convert frameLogMap to sorted array
+  const frameLog = Array.from(frameLogMap.values()).sort(
+    (a, b) => a.frameNumber - b.frameNumber
+  );
+
   return {
     frameData,
+    frameLog,
     connectionStatus,
     sendCommand,
     error,
