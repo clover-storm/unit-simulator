@@ -5,12 +5,14 @@ interface CommandPanelProps {
   selectedUnit: UnitStateData | null | undefined;
   onSendCommand: (command: Command) => void;
   isConnected: boolean;
+  disabled?: boolean;  // True if user doesn't have control permission
 }
 
 function CommandPanel({
   selectedUnit,
   onSendCommand,
   isConnected,
+  disabled = false,
 }: CommandPanelProps) {
   const [moveX, setMoveX] = useState('');
   const [moveY, setMoveY] = useState('');
@@ -73,7 +75,7 @@ function CommandPanel({
     });
   }, [selectedUnit, onSendCommand]);
 
-  const isDisabled = !isConnected || !selectedUnit;
+  const isDisabled = !isConnected || !selectedUnit || disabled;
 
   return (
     <div className="panel command-panel">

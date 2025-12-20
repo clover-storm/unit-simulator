@@ -8,6 +8,7 @@ interface SimulationControlsProps {
   onReset: () => void;
   isConnected: boolean;
   isPlaying: boolean;
+  disabled?: boolean;  // True if user doesn't have control permission
 }
 
 function SimulationControls({
@@ -20,7 +21,10 @@ function SimulationControls({
   onReset,
   isConnected,
   isPlaying,
+  disabled = false,
 }: SimulationControlsProps) {
+  const isDisabled = !isConnected || disabled;
+
   return (
     <div className="panel">
       <h2>Simulation Controls</h2>
@@ -28,30 +32,30 @@ function SimulationControls({
         <button
           className="btn-primary"
           onClick={onPlayPause}
-          disabled={!isConnected}
+          disabled={isDisabled}
         >
-          {isPlaying ? '⏸ Pause' : '▶ Play'}
+          {isPlaying ? 'Pause' : 'Play'}
         </button>
         <button
           className="btn-secondary"
           onClick={onStep}
-          disabled={!isConnected}
+          disabled={isDisabled}
         >
-          ⏭ Step
+          Step
         </button>
         <button
           className="btn-secondary"
           onClick={onStepBack}
-          disabled={!isConnected}
+          disabled={isDisabled}
         >
-          ⏮ Step Back
+          Step Back
         </button>
         <button
           className="btn-secondary"
           onClick={onReset}
-          disabled={!isConnected}
+          disabled={isDisabled}
         >
-          ↻ Reset
+          Reset
         </button>
       </div>
       <div className="controls" style={{ marginTop: '0.5rem' }}>
@@ -69,7 +73,7 @@ function SimulationControls({
           onClick={onSeek}
           disabled={!isConnected}
         >
-          ⏩ Seek
+          Seek
         </button>
       </div>
     </div>

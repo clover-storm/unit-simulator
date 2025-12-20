@@ -6,21 +6,46 @@ import SimulationCanvas from './components/SimulationCanvas';
 import UnitStateViewer from './components/UnitStateViewer';
 import CommandPanel from './components/CommandPanel';
 import SimulationControls from './components/SimulationControls';
+import SessionSelector from './components/SessionSelector';
+
+const API_BASE_URL = 'http://localhost:5000';
+const WS_BASE_URL = 'ws://localhost:5000/ws';
 
 function App() {
+  // Session selection state
+  const [selectedSession, setSelectedSession] = useState<string | null | undefined>(undefined);
+  const [showSessionSelector, setShowSessionSelector] = useState(true);
+
   const [selectedUnitId, setSelectedUnitId] = useState<number | null>(null);
   const [selectedFaction, setSelectedFaction] = useState<'Friendly' | 'Enemy' | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [seekFrameInput, setSeekFrameInput] = useState<string>('0');
 
-  const { 
-    frameData, 
+  const {
+    frameData,
     frameLog,
-    connectionStatus, 
-    sendCommand, 
+    connectionStatus,
+    sendCommand,
     error,
     lastMessageType,
-  } = useWebSocket('ws://localhost:5000/ws');
+    sessionId,
+    role,
+    isOwnerConnected,
+  } = useWebSocket(WS_BASE_URL, {
+    sessionId: selectedSession === undefined ? undefined : selectedSession,
+  });
+
+  // Handle session selection
+  const handleSessionSelect = useCallback((sessionId: string | null) => {
+    setSelectedSession(sessionId);
+    setShowSessionSelector(false);
+  }, []);
+
+  // Show session selector when disconnected or on explicit request
+  const handleChangeSession = useCallback(() => {
+    setShowSessionSelector(true);
+    setSelectedSession(undefined);
+  }, []);
 
   const handleUnitSelect = useCallback((unit: UnitStateData | null) => {
     if (unit) {
@@ -71,7 +96,6 @@ function App() {
     if (connectionStatus !== 'connected') return;
 
     if (isPlaying) {
-      // Pause before stepping to avoid concurrent play + step
       sendCommand({ type: 'stop' });
       setIsPlaying(false);
     }
@@ -131,13 +155,49 @@ function App() {
       )
     : null;
 
+  // Check if user can control (owner and owner connected)
+  const canControl = role === 'owner' && isOwnerConnected;
+
+  // Show session selector if not connected to a session
+  if (showSessionSelector || selectedSession === undefined) {
+    return (
+      <div className="app">
+        <header className="header">
+          <h1>Unit Simulator - GUI Viewer</h1>
+        </header>
+        <SessionSelector
+          apiBaseUrl={API_BASE_URL}
+          onSessionSelect={handleSessionSelect}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="app">
       <header className="header">
         <h1>Unit Simulator - GUI Viewer</h1>
         <div className="header-controls">
+          <div className="session-info">
+            {sessionId && (
+              <>
+                <span className="session-id" title={sessionId}>
+                  Session: {sessionId.substring(0, 8)}...
+                </span>
+                <span className={`role-badge role-${role}`}>
+                  {role}
+                </span>
+                {!isOwnerConnected && (
+                  <span className="owner-warning">Owner disconnected</span>
+                )}
+                <button className="btn-secondary btn-small" onClick={handleChangeSession}>
+                  Change Session
+                </button>
+              </>
+            )}
+          </div>
           <div className="connection-status">
-            <span 
+            <span
               className={`status-indicator ${connectionStatus}`}
               title={connectionStatus}
             />
@@ -154,7 +214,7 @@ function App() {
             disabled={frameLog.length === 0}
             title={frameLog.length === 0 ? 'No frames to download' : `Download ${frameLog.length} frames as JSON`}
           >
-            📥 Download Frames ({frameLog.length})
+            Download Frames ({frameLog.length})
           </button>
         </div>
       </header>
@@ -179,7 +239,7 @@ function App() {
             selectedFaction={selectedFaction}
             onUnitSelect={handleUnitSelect}
             onCanvasClick={(x, y) => {
-              if (selectedUnit && !selectedUnit.isDead) {
+              if (selectedUnit && !selectedUnit.isDead && canControl) {
                 handleSendCommand({
                   type: 'move',
                   unitId: selectedUnit.id,
@@ -200,7 +260,14 @@ function App() {
             onReset={handleReset}
             isConnected={connectionStatus === 'connected'}
             isPlaying={isPlaying}
+            disabled={!canControl}
           />
+
+          {!canControl && role === 'viewer' && (
+            <div className="viewer-notice">
+              You are viewing as a spectator. Only the session owner can control the simulation.
+            </div>
+          )}
         </div>
 
         <div className="sidebar">
@@ -215,9 +282,63 @@ function App() {
             selectedUnit={selectedUnit}
             onSendCommand={handleSendCommand}
             isConnected={connectionStatus === 'connected'}
+            disabled={!canControl}
           />
         </div>
       </main>
+
+      <style>{`
+        .session-info {
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+          margin-right: 1rem;
+        }
+
+        .session-id {
+          font-family: monospace;
+          color: #94a3b8;
+          font-size: 0.875rem;
+        }
+
+        .role-badge {
+          padding: 0.25rem 0.5rem;
+          border-radius: 4px;
+          font-size: 0.75rem;
+          font-weight: 500;
+          text-transform: uppercase;
+        }
+
+        .role-owner {
+          background: #166534;
+          color: #86efac;
+        }
+
+        .role-viewer {
+          background: #1e3a8a;
+          color: #93c5fd;
+        }
+
+        .owner-warning {
+          color: #facc15;
+          font-size: 0.75rem;
+        }
+
+        .btn-small {
+          padding: 0.25rem 0.5rem;
+          font-size: 0.75rem;
+        }
+
+        .viewer-notice {
+          background: #1e3a8a;
+          color: #93c5fd;
+          padding: 0.75rem;
+          border-radius: 4px;
+          text-align: center;
+          font-size: 0.875rem;
+          margin-top: 0.5rem;
+        }
+      `}</style>
     </div>
   );
 }

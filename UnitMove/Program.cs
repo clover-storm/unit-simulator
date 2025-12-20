@@ -72,15 +72,20 @@ public class Program
     /// Runs the WebSocket server for the GUI viewer.
     /// The server listens for WebSocket connections and provides real-time
     /// simulation data to connected clients.
+    /// Supports multiple isolated simulation sessions.
     /// </summary>
     /// <param name="port">The port number to listen on.</param>
     private static async Task RunServerAsync(int port)
     {
-        var simulator = new SimulatorCore();
-        simulator.RenderingEnabled = false; // No image rendering in server mode
-        simulator.Initialize();
+        // Configure session manager options
+        var sessionOptions = new SessionManagerOptions
+        {
+            MaxSessions = 100,                          // Data-driven, can be adjusted
+            IdleTimeout = TimeSpan.FromMinutes(30),     // Auto-cleanup idle sessions
+            CleanupIntervalMs = 60_000                  // Check every minute
+        };
 
-        using var server = new WebSocketServer(simulator, port);
+        using var server = new WebSocketServer(port, sessionOptions);
 
         // Handle Ctrl+C to gracefully shutdown
         Console.CancelKeyPress += (_, e) =>
@@ -91,7 +96,10 @@ public class Program
         };
 
         Console.WriteLine("Press Ctrl+C to stop the server.");
-        Console.WriteLine("Connect the GUI viewer to ws://localhost:" + port + "/ws");
+        Console.WriteLine($"API endpoints:");
+        Console.WriteLine($"  - GET  http://localhost:{port}/sessions     (list sessions)");
+        Console.WriteLine($"  - POST http://localhost:{port}/sessions     (create session)");
+        Console.WriteLine($"  - GET  http://localhost:{port}/sessions/{{id}} (session info)");
 
         await server.StartAsync();
     }
