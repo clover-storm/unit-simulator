@@ -42,14 +42,37 @@ export interface FrameData {
 }
 
 // WebSocket message types
-export type MessageType = 
+export type MessageType =
   | 'frame'
   | 'state_change'
   | 'unit_event'
   | 'simulation_complete'
   | 'command_ack'
   | 'session_log_summary'
+  | 'session_joined'
   | 'error';
+
+// Session types
+export type SessionRole = 'owner' | 'viewer';
+
+export interface SessionInfo {
+  sessionId: string;
+  createdAt: string;
+  lastActivityAt: string;
+  clientCount: number;
+  simulatorState: 'idle' | 'running' | 'paused' | 'completed';
+  currentFrame: number;
+  hasOwner: boolean;
+  isOwnerConnected: boolean;
+}
+
+export interface SessionJoinedData {
+  sessionId: string;
+  role: SessionRole;
+  simulatorState: string;
+  currentFrame: number;
+  clientCount: number;
+}
 
 export interface WebSocketMessage {
   type: MessageType;

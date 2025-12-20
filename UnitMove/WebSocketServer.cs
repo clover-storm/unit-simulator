@@ -2,49 +2,35 @@ using System.Net;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
-using System.Linq;
 
 namespace UnitSimulator;
 
 /// <summary>
 /// WebSocket server for real-time communication with the GUI viewer.
-/// Provides endpoints for receiving simulation data and sending commands.
+/// Supports multiple isolated simulation sessions.
 /// </summary>
 public class WebSocketServer : IDisposable
 {
-    private readonly SimulatorCore _simulator;
+    private readonly SessionManager _sessionManager;
     private readonly HttpListener _httpListener;
-    private readonly List<WebSocket> _clients = new();
-    private readonly object _clientsLock = new();
     private readonly CancellationTokenSource _cts = new();
     private readonly JsonSerializerOptions _jsonOptions;
     private readonly int _port;
     private bool _isRunning;
     private bool _disposed;
-    private Task? _playTask;
-    private CancellationTokenSource? _playCts;
-    private readonly List<FrameData> _frameHistory = new();
-    private readonly object _historyLock = new();
-    private const int MaxHistoryFrames = 5000;
-    private readonly SessionLogger _sessionLogger;
 
-    private bool IsPlaying => _playTask != null && !_playTask.IsCompleted && _playCts is { IsCancellationRequested: false };
-
-    public WebSocketServer(SimulatorCore simulator, int port = 5000)
+    public WebSocketServer(int port = 5000, SessionManagerOptions? sessionOptions = null)
     {
-        _simulator = simulator;
         _port = port;
+        _sessionManager = new SessionManager(sessionOptions);
         _httpListener = new HttpListener();
         _httpListener.Prefixes.Add($"http://localhost:{port}/");
-        
+
         _jsonOptions = new JsonSerializerOptions
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             WriteIndented = false
         };
-
-        _sessionLogger = new SessionLogger();
-        Console.WriteLine($"[WebSocketServer] Session started: {_sessionLogger.SessionId}");
     }
 
     /// <summary>
@@ -53,31 +39,32 @@ public class WebSocketServer : IDisposable
     public async Task StartAsync()
     {
         if (_isRunning) return;
-        
+
         _isRunning = true;
         _httpListener.Start();
         Console.WriteLine($"[WebSocketServer] Started on http://localhost:{_port}/");
-        Console.WriteLine($"[WebSocketServer] WebSocket endpoint: ws://localhost:{_port}/ws");
+        Console.WriteLine($"[WebSocketServer] WebSocket endpoints:");
+        Console.WriteLine($"  - ws://localhost:{_port}/ws          (create new session)");
+        Console.WriteLine($"  - ws://localhost:{_port}/ws/new      (create new session)");
+        Console.WriteLine($"  - ws://localhost:{_port}/ws/{{id}}     (join existing session)");
 
         while (_isRunning && !_cts.Token.IsCancellationRequested)
         {
             try
             {
                 var context = await _httpListener.GetContextAsync();
-                
+
                 if (context.Request.IsWebSocketRequest)
                 {
-                    _ = HandleWebSocketConnectionAsync(context);
+                    _ = HandleWebSocketRequestAsync(context);
                 }
                 else
                 {
-                    // Handle non-WebSocket requests (for health checks, etc.)
                     HandleHttpRequest(context);
                 }
             }
             catch when (_cts.Token.IsCancellationRequested)
             {
-                // Expected when shutting down
                 break;
             }
             catch (Exception ex)
@@ -87,13 +74,16 @@ public class WebSocketServer : IDisposable
         }
     }
 
+    #region HTTP Request Handling
+
     private void HandleHttpRequest(HttpListenerContext context)
     {
         var response = context.Response;
-        
+        var path = context.Request.Url?.AbsolutePath ?? "";
+
         // Add CORS headers
         response.Headers.Add("Access-Control-Allow-Origin", "*");
-        response.Headers.Add("Access-Control-Allow-Methods", "GET, OPTIONS");
+        response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
         response.Headers.Add("Access-Control-Allow-Headers", "Content-Type");
 
         if (context.Request.HttpMethod == "OPTIONS")
@@ -103,97 +93,214 @@ public class WebSocketServer : IDisposable
             return;
         }
 
-        if (context.Request.Url?.AbsolutePath == "/health")
+        try
         {
-            response.StatusCode = 200;
-            response.ContentType = "application/json";
-            var healthData = Encoding.UTF8.GetBytes("{\"status\":\"ok\"}");
-            response.OutputStream.Write(healthData, 0, healthData.Length);
-        }
-        else if (context.Request.Url?.AbsolutePath == "/frame")
-        {
-            // Get current frame data
-            try
+            if (path == "/health")
             {
-                if (_simulator.IsInitialized)
-                {
-                    var frameData = _simulator.GetCurrentFrameData();
-                    var json = JsonSerializer.Serialize(new { type = "frame", data = frameData }, _jsonOptions);
-                    var data = Encoding.UTF8.GetBytes(json);
-                    response.StatusCode = 200;
-                    response.ContentType = "application/json";
-                    response.OutputStream.Write(data, 0, data.Length);
-                }
-                else
-                {
-                    response.StatusCode = 503;
-                    var data = Encoding.UTF8.GetBytes("{\"error\":\"Simulator not initialized\"}");
-                    response.OutputStream.Write(data, 0, data.Length);
-                }
+                RespondJson(response, 200, new { status = "ok", sessions = _sessionManager.SessionCount });
             }
-            catch (Exception ex)
+            else if (path == "/sessions")
             {
-                response.StatusCode = 500;
-                var data = Encoding.UTF8.GetBytes($"{{\"error\":\"{ex.Message}\"}}");
-                response.OutputStream.Write(data, 0, data.Length);
+                HandleSessionsRequest(context);
+            }
+            else if (path.StartsWith("/sessions/"))
+            {
+                HandleSessionRequest(context, path);
+            }
+            else
+            {
+                response.StatusCode = 404;
+            }
+        }
+        catch (Exception ex)
+        {
+            RespondJson(response, 500, new { error = ex.Message });
+        }
+
+        response.Close();
+    }
+
+    private void HandleSessionsRequest(HttpListenerContext context)
+    {
+        var response = context.Response;
+
+        if (context.Request.HttpMethod == "GET")
+        {
+            // List all sessions
+            var sessions = _sessionManager.ListSessions().ToList();
+            RespondJson(response, 200, new { sessions, count = sessions.Count });
+        }
+        else if (context.Request.HttpMethod == "POST")
+        {
+            // Create new session (without WebSocket connection)
+            var session = _sessionManager.CreateSession();
+            if (session != null)
+            {
+                RespondJson(response, 201, new { sessionId = session.SessionId, message = "Session created" });
+            }
+            else
+            {
+                RespondJson(response, 503, new { error = "Max sessions reached" });
             }
         }
         else
         {
-            response.StatusCode = 404;
+            response.StatusCode = 405;
         }
-        
-        response.Close();
     }
 
-    private async Task HandleWebSocketConnectionAsync(HttpListenerContext context)
+    private void HandleSessionRequest(HttpListenerContext context, string path)
     {
+        var response = context.Response;
+        var sessionId = path.Substring("/sessions/".Length);
+
+        if (string.IsNullOrEmpty(sessionId))
+        {
+            response.StatusCode = 400;
+            return;
+        }
+
+        var session = _sessionManager.GetSession(sessionId);
+
+        if (context.Request.HttpMethod == "GET")
+        {
+            if (session != null)
+            {
+                RespondJson(response, 200, session.GetInfo());
+            }
+            else
+            {
+                RespondJson(response, 404, new { error = "Session not found" });
+            }
+        }
+        else if (context.Request.HttpMethod == "DELETE")
+        {
+            if (_sessionManager.RemoveSession(sessionId))
+            {
+                RespondJson(response, 200, new { message = "Session deleted" });
+            }
+            else
+            {
+                RespondJson(response, 404, new { error = "Session not found" });
+            }
+        }
+        else
+        {
+            response.StatusCode = 405;
+        }
+    }
+
+    private void RespondJson<T>(HttpListenerResponse response, int statusCode, T data)
+    {
+        response.StatusCode = statusCode;
+        response.ContentType = "application/json";
+        var json = JsonSerializer.Serialize(data, _jsonOptions);
+        var bytes = Encoding.UTF8.GetBytes(json);
+        response.OutputStream.Write(bytes, 0, bytes.Length);
+    }
+
+    #endregion
+
+    #region WebSocket Request Handling
+
+    private async Task HandleWebSocketRequestAsync(HttpListenerContext context)
+    {
+        var path = context.Request.Url?.AbsolutePath ?? "";
+        string? requestedSessionId = null;
+        bool createNew = false;
+
+        // Parse WebSocket path
+        // /ws or /ws/new -> create new session
+        // /ws/{sessionId} -> join existing session
+        if (path == "/ws" || path == "/ws/new")
+        {
+            createNew = true;
+        }
+        else if (path.StartsWith("/ws/"))
+        {
+            requestedSessionId = path.Substring("/ws/".Length);
+            if (string.IsNullOrEmpty(requestedSessionId))
+            {
+                createNew = true;
+            }
+        }
+        else
+        {
+            // Invalid path
+            context.Response.StatusCode = 400;
+            context.Response.Close();
+            return;
+        }
+
         WebSocket? webSocket = null;
-        
+
         try
         {
             var wsContext = await context.AcceptWebSocketAsync(null);
             webSocket = wsContext.WebSocket;
-            
-            lock (_clientsLock)
-            {
-                _clients.Add(webSocket);
-            }
-            
-            Console.WriteLine($"[WebSocketServer] Client connected. Total clients: {_clients.Count}");
 
-            // Send initial frame data
-            if (_simulator.IsInitialized)
+            // Wait for identify message
+            var clientId = await WaitForIdentifyAsync(webSocket);
+            if (clientId == null)
             {
-                var frameData = _simulator.GetCurrentFrameData();
-                await SendToClientAsync(webSocket, "frame", frameData);
+                await webSocket.CloseAsync(
+                    WebSocketCloseStatus.PolicyViolation,
+                    "Identify message required",
+                    CancellationToken.None);
+                return;
             }
 
-            // Handle incoming messages
-            var buffer = new byte[4096];
-            while (webSocket.State == WebSocketState.Open && !_cts.Token.IsCancellationRequested)
+            // Get or create session
+            SimulationSession? session;
+            if (createNew)
             {
-                try
+                session = _sessionManager.CreateSession();
+                if (session == null)
                 {
-                    var result = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), _cts.Token);
-                    
-                    if (result.MessageType == WebSocketMessageType.Close)
-                    {
-                        await webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None);
-                        break;
-                    }
-                    
-                    if (result.MessageType == WebSocketMessageType.Text)
-                    {
-                        var message = Encoding.UTF8.GetString(buffer, 0, result.Count);
-                        await HandleClientMessageAsync(webSocket, message);
-                    }
-                }
-                catch (OperationCanceledException)
-                {
-                    break;
+                    await SendMessageAsync(webSocket, "error", new { message = "Max sessions reached" });
+                    await webSocket.CloseAsync(
+                        WebSocketCloseStatus.PolicyViolation,
+                        "Max sessions reached",
+                        CancellationToken.None);
+                    return;
                 }
             }
+            else
+            {
+                session = _sessionManager.GetSession(requestedSessionId!);
+                if (session == null)
+                {
+                    await SendMessageAsync(webSocket, "error", new { message = "Session not found", sessionId = requestedSessionId });
+                    await webSocket.CloseAsync(
+                        WebSocketCloseStatus.PolicyViolation,
+                        "Session not found",
+                        CancellationToken.None);
+                    return;
+                }
+            }
+
+            // Add client to session
+            var client = session.AddClient(webSocket, clientId);
+
+            // Send session info to client
+            await SendMessageAsync(webSocket, "session_joined", new
+            {
+                sessionId = session.SessionId,
+                role = client.Role.ToString().ToLower(),
+                simulatorState = session.SimulatorState,
+                currentFrame = session.Simulator.IsInitialized ? session.Simulator.CurrentFrame : 0,
+                clientCount = session.ClientCount
+            });
+
+            // Send current frame if available
+            if (session.Simulator.IsInitialized)
+            {
+                var frameData = session.Simulator.GetCurrentFrameData();
+                await session.SendToClientAsync(client, "frame", frameData);
+            }
+
+            // Handle client messages
+            await HandleClientConnectionAsync(client, session);
         }
         catch (Exception ex)
         {
@@ -201,237 +308,309 @@ public class WebSocketServer : IDisposable
         }
         finally
         {
-            if (webSocket != null)
+            webSocket?.Dispose();
+        }
+    }
+
+    private async Task<string?> WaitForIdentifyAsync(WebSocket webSocket)
+    {
+        var buffer = new byte[4096];
+        var timeout = TimeSpan.FromSeconds(10);
+        using var cts = new CancellationTokenSource(timeout);
+
+        try
+        {
+            var result = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), cts.Token);
+
+            if (result.MessageType == WebSocketMessageType.Text)
             {
-                lock (_clientsLock)
+                var message = Encoding.UTF8.GetString(buffer, 0, result.Count);
+                using var doc = JsonDocument.Parse(message);
+                var root = doc.RootElement;
+
+                if (root.TryGetProperty("type", out var typeEl) &&
+                    typeEl.GetString() == "identify" &&
+                    root.TryGetProperty("data", out var dataEl) &&
+                    dataEl.TryGetProperty("clientId", out var clientIdEl))
                 {
-                    _clients.Remove(webSocket);
+                    return clientIdEl.GetString();
                 }
-                
-                Console.WriteLine($"[WebSocketServer] Client disconnected. Total clients: {_clients.Count}");
-                
-                if (webSocket.State != WebSocketState.Closed)
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            Console.WriteLine("[WebSocketServer] Identify timeout");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[WebSocketServer] Identify error: {ex.Message}");
+        }
+
+        return null;
+    }
+
+    private async Task HandleClientConnectionAsync(SessionClient client, SimulationSession session)
+    {
+        var buffer = new byte[4096];
+
+        try
+        {
+            while (client.IsConnected && !_cts.Token.IsCancellationRequested)
+            {
+                var result = await client.Socket.ReceiveAsync(
+                    new ArraySegment<byte>(buffer),
+                    _cts.Token);
+
+                if (result.MessageType == WebSocketMessageType.Close)
                 {
-                    try
-                    {
-                        await webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None);
-                    }
-                    catch { }
+                    break;
                 }
-                
-                webSocket.Dispose();
+
+                if (result.MessageType == WebSocketMessageType.Text)
+                {
+                    var message = Encoding.UTF8.GetString(buffer, 0, result.Count);
+                    await HandleClientMessageAsync(client, session, message);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected on shutdown
+        }
+        catch (WebSocketException)
+        {
+            // Connection closed
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[WebSocketServer] Client error: {ex.Message}");
+        }
+        finally
+        {
+            session.RemoveClient(client);
+
+            if (client.IsConnected)
+            {
+                try
+                {
+                    await client.Socket.CloseAsync(
+                        WebSocketCloseStatus.NormalClosure,
+                        "Closing",
+                        CancellationToken.None);
+                }
+                catch { }
             }
         }
     }
 
-    private async Task HandleClientMessageAsync(WebSocket client, string message)
+    private async Task HandleClientMessageAsync(SessionClient client, SimulationSession session, string message)
     {
         try
         {
             using var doc = JsonDocument.Parse(message);
             var root = doc.RootElement;
-            
+
             if (!root.TryGetProperty("type", out var typeElement))
             {
-                await SendToClientAsync(client, "error", "Missing 'type' field");
+                await session.SendToClientAsync(client, "error", new { message = "Missing 'type' field" });
                 return;
             }
 
             var type = typeElement.GetString();
-            
+
             if (type == "command" && root.TryGetProperty("data", out var dataElement))
             {
-                await HandleCommandAsync(client, dataElement);
+                await HandleCommandAsync(client, session, dataElement);
             }
             else
             {
-                await SendToClientAsync(client, "error", $"Unknown message type: {type}");
+                await session.SendToClientAsync(client, "error", new { message = $"Unknown message type: {type}" });
             }
         }
         catch (JsonException ex)
         {
-            await SendToClientAsync(client, "error", $"Invalid JSON: {ex.Message}");
+            await session.SendToClientAsync(client, "error", new { message = $"Invalid JSON: {ex.Message}" });
         }
     }
 
-    private async Task HandleCommandAsync(WebSocket client, JsonElement commandData)
+    private async Task HandleCommandAsync(SessionClient client, SimulationSession session, JsonElement commandData)
     {
         if (!commandData.TryGetProperty("type", out var cmdTypeElement))
         {
-            await SendToClientAsync(client, "error", "Missing command type");
+            await session.SendToClientAsync(client, "error", new { message = "Missing command type" });
             return;
         }
 
-        var cmdType = cmdTypeElement.GetString();
-        
+        var cmdType = cmdTypeElement.GetString() ?? "";
+
         // Log the command
-        _sessionLogger.LogCommand(cmdType ?? "unknown", commandData);
+        session.Logger.LogCommand(cmdType, commandData);
+
+        // Validate permission
+        var validationError = session.ValidateCommand(client, cmdType);
+        if (validationError != null)
+        {
+            await session.SendToClientAsync(client, "error", new
+            {
+                message = validationError,
+                code = client.Role == SessionRole.Viewer ? "permission_denied" : "owner_disconnected"
+            });
+            return;
+        }
 
         switch (cmdType)
         {
             case "start":
-                await StartSimulationAsync();
+                await session.StartSimulationAsync();
+                await session.SendToClientAsync(client, "command_ack", new { command = "start", success = true });
                 break;
 
             case "stop":
-                StopSimulation();
-                await SendToClientAsync(client, "command_ack", new { command = "stop", success = true });
+                session.StopSimulation();
+                await session.SendToClientAsync(client, "command_ack", new { command = "stop", success = true });
                 break;
 
             case "step":
-                await StepSimulationAsync();
+                session.StepSimulation();
+                await session.SendToClientAsync(client, "command_ack", new { command = "step", success = true });
                 break;
+
             case "step_back":
-                await StepBackAsync(client);
+                await HandleStepBackAsync(client, session);
                 break;
+
             case "seek":
                 if (commandData.TryGetProperty("frameNumber", out var frameElement) &&
                     frameElement.TryGetInt32(out var frameNumber))
                 {
-                    await SeekAsync(client, frameNumber);
+                    await HandleSeekAsync(client, session, frameNumber);
                 }
                 else
                 {
-                    await SendToClientAsync(client, "error", "Missing frameNumber for seek command");
+                    await session.SendToClientAsync(client, "error", new { message = "Missing frameNumber for seek command" });
                 }
                 break;
 
             case "reset":
-                ResetSimulation();
-                await BroadcastFrameAsync();
-                await SendToClientAsync(client, "command_ack", new { command = "reset", success = true });
+                session.ResetSimulation();
+                await session.BroadcastAsync("frame", session.Simulator.GetCurrentFrameData());
+                await session.SendToClientAsync(client, "command_ack", new { command = "reset", success = true });
                 break;
 
             case "move":
-                await HandleMoveCommandAsync(client, commandData);
+                await HandleMoveCommandAsync(client, session, commandData);
                 break;
 
             case "set_health":
-                await HandleSetHealthCommandAsync(client, commandData);
+                await HandleSetHealthCommandAsync(client, session, commandData);
                 break;
 
             case "kill":
-                await HandleKillCommandAsync(client, commandData);
+                await HandleKillCommandAsync(client, session, commandData);
                 break;
 
             case "revive":
-                await HandleReviveCommandAsync(client, commandData);
+                await HandleReviveCommandAsync(client, session, commandData);
                 break;
 
             case "get_session_log":
-                await HandleGetSessionLogAsync(client);
+                await HandleGetSessionLogAsync(client, session);
                 break;
 
             default:
-                await SendToClientAsync(client, "error", $"Unknown command: {cmdType}");
+                await session.SendToClientAsync(client, "error", new { message = $"Unknown command: {cmdType}" });
                 break;
         }
     }
 
-    private async Task StartSimulationAsync()
+    #endregion
+
+    #region Command Handlers
+
+    private async Task HandleStepBackAsync(SessionClient client, SimulationSession session)
     {
-        if (_playTask != null && !_playTask.IsCompleted)
+        var targetFrame = Math.Max(0, session.Simulator.CurrentFrame - 1);
+        var frame = session.GetFrameFromHistory(targetFrame);
+
+        if (frame == null)
         {
-            return; // Already playing
+            await session.SendToClientAsync(client, "error", new { message = $"No frame history for frame {targetFrame}" });
+            return;
         }
 
-        if (!_simulator.IsInitialized)
-        {
-            _simulator.Initialize();
-        }
-
-        if (!_frameHistory.Any())
-        {
-            var initialFrame = _simulator.GetCurrentFrameData();
-            RecordFrame(initialFrame);
-        }
-
-        // Use callbacks that broadcast each frame and log events
-        var callbacks = new CompositeCallbacks(new WebSocketCallbacks(this), _sessionLogger);
-
-        _playCts?.Cancel();
-        _playCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
-        var token = _playCts.Token;
-
-        _playTask = Task.Run(async () =>
-        {
-            try
-            {
-                var frameDelay = TimeSpan.FromMilliseconds(33); // ~30fps playback
-
-                while (!token.IsCancellationRequested)
-                {
-                    var frameData = _simulator.Step(callbacks);
-
-                    if (frameData.AllWavesCleared || frameData.MaxFramesReached)
-                    {
-                        await BroadcastAsync("simulation_complete", new
-                        {
-                            finalFrame = _simulator.CurrentFrame,
-                            reason = frameData.AllWavesCleared ? "AllWavesCleared" : "MaxFramesReached"
-                        });
-                        break;
-                    }
-
-                    await Task.Delay(frameDelay, token);
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                // Expected on pause/stop
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[WebSocketServer] Simulation error: {ex.Message}");
-                _sessionLogger.LogError($"Simulation error: {ex.Message}", ex);
-            }
-            finally
-            {
-                _playTask = null;
-            }
-        }, token);
+        session.Simulator.LoadState(frame);
+        await session.BroadcastAsync("frame", frame);
     }
 
-    private void StopSimulation()
+    private async Task HandleSeekAsync(SessionClient client, SimulationSession session, int targetFrame)
     {
-        _playCts?.Cancel();
-        _simulator.Stop();
-    }
-
-    private async Task StepSimulationAsync()
-    {
-        _playCts?.Cancel();
-
-        if (!_simulator.IsInitialized)
+        if (targetFrame < 0)
         {
-            _simulator.Initialize();
+            await session.SendToClientAsync(client, "error", new { message = "frameNumber must be non-negative" });
+            return;
         }
 
-        var callbacks = new CompositeCallbacks(new WebSocketCallbacks(this), _sessionLogger);
-        _simulator.Step(callbacks);
-    }
-
-    private void ResetSimulation()
-    {
-        _playCts?.Cancel();
-        _simulator.Stop();
-        _simulator.Reset();
-
-        lock (_historyLock)
+        // For Viewer, only local seek (send frame from history without affecting simulation)
+        if (client.Role == SessionRole.Viewer)
         {
-            _frameHistory.Clear();
+            var historyFrame = session.GetFrameFromHistory(targetFrame);
+            if (historyFrame != null)
+            {
+                await session.SendToClientAsync(client, "frame", historyFrame);
+            }
+            else
+            {
+                await session.SendToClientAsync(client, "error", new { message = $"Frame {targetFrame} not in history" });
+            }
+            return;
         }
 
-        // Seed history with the reset state for immediate seeking/backstep
-        var initialFrame = _simulator.GetCurrentFrameData();
-        RecordFrame(initialFrame);
+        // For Owner, seek affects the simulation state
+        var frame = session.GetFrameFromHistory(targetFrame);
+        if (frame != null)
+        {
+            session.Simulator.LoadState(frame);
+            await session.BroadcastAsync("frame", frame);
+            return;
+        }
+
+        // Frame not in history, simulate forward
+        if (!session.Simulator.IsInitialized)
+        {
+            session.Simulator.Initialize();
+        }
+
+        var callbacks = new SeekCallbacks(session);
+        FrameData? reached = null;
+
+        while (true)
+        {
+            var frameData = session.Simulator.Step(callbacks);
+            reached = frameData;
+
+            if (frameData.FrameNumber >= targetFrame ||
+                frameData.AllWavesCleared ||
+                frameData.MaxFramesReached)
+            {
+                break;
+            }
+        }
+
+        if (reached != null)
+        {
+            await session.BroadcastAsync("frame", reached);
+        }
+        else
+        {
+            await session.SendToClientAsync(client, "error", new { message = $"Unable to seek to frame {targetFrame}" });
+        }
     }
 
-    private async Task HandleMoveCommandAsync(WebSocket client, JsonElement data)
+    private async Task HandleMoveCommandAsync(SessionClient client, SimulationSession session, JsonElement data)
     {
         if (!TryGetUnitInfo(data, out var unitId, out var faction))
         {
-            await SendToClientAsync(client, "error", "Invalid unit info for move command");
+            await session.SendToClientAsync(client, "error", new { message = "Invalid unit info for move command" });
             return;
         }
 
@@ -439,43 +618,43 @@ public class WebSocketServer : IDisposable
             !posElement.TryGetProperty("x", out var xElement) ||
             !posElement.TryGetProperty("y", out var yElement))
         {
-            await SendToClientAsync(client, "error", "Missing position for move command");
+            await session.SendToClientAsync(client, "error", new { message = "Missing position for move command" });
             return;
         }
 
         var x = xElement.GetSingle();
         var y = yElement.GetSingle();
 
-        var success = _simulator.ModifyUnit(unitId, faction, unit =>
+        var success = session.Simulator.ModifyUnit(unitId, faction, unit =>
         {
             unit.CurrentDestination = new System.Numerics.Vector2(x, y);
         });
 
-        await SendToClientAsync(client, "command_ack", new { command = "move", success, unitId, x, y });
-        
+        await session.SendToClientAsync(client, "command_ack", new { command = "move", success, unitId, x, y });
+
         if (success)
         {
-            await BroadcastFrameAsync();
+            await session.BroadcastAsync("frame", session.Simulator.GetCurrentFrameData());
         }
     }
 
-    private async Task HandleSetHealthCommandAsync(WebSocket client, JsonElement data)
+    private async Task HandleSetHealthCommandAsync(SessionClient client, SimulationSession session, JsonElement data)
     {
         if (!TryGetUnitInfo(data, out var unitId, out var faction))
         {
-            await SendToClientAsync(client, "error", "Invalid unit info for set_health command");
+            await session.SendToClientAsync(client, "error", new { message = "Invalid unit info for set_health command" });
             return;
         }
 
         if (!data.TryGetProperty("health", out var healthElement))
         {
-            await SendToClientAsync(client, "error", "Missing health value");
+            await session.SendToClientAsync(client, "error", new { message = "Missing health value" });
             return;
         }
 
         var health = healthElement.GetInt32();
 
-        var success = _simulator.ModifyUnit(unitId, faction, unit =>
+        var success = session.Simulator.ModifyUnit(unitId, faction, unit =>
         {
             unit.HP = health;
             if (health > 0 && unit.IsDead)
@@ -488,41 +667,41 @@ public class WebSocketServer : IDisposable
             }
         });
 
-        await SendToClientAsync(client, "command_ack", new { command = "set_health", success, unitId, health });
-        
+        await session.SendToClientAsync(client, "command_ack", new { command = "set_health", success, unitId, health });
+
         if (success)
         {
-            await BroadcastFrameAsync();
+            await session.BroadcastAsync("frame", session.Simulator.GetCurrentFrameData());
         }
     }
 
-    private async Task HandleKillCommandAsync(WebSocket client, JsonElement data)
+    private async Task HandleKillCommandAsync(SessionClient client, SimulationSession session, JsonElement data)
     {
         if (!TryGetUnitInfo(data, out var unitId, out var faction))
         {
-            await SendToClientAsync(client, "error", "Invalid unit info for kill command");
+            await session.SendToClientAsync(client, "error", new { message = "Invalid unit info for kill command" });
             return;
         }
 
-        var success = _simulator.ModifyUnit(unitId, faction, unit =>
+        var success = session.Simulator.ModifyUnit(unitId, faction, unit =>
         {
             unit.HP = 0;
             unit.IsDead = true;
         });
 
-        await SendToClientAsync(client, "command_ack", new { command = "kill", success, unitId });
-        
+        await session.SendToClientAsync(client, "command_ack", new { command = "kill", success, unitId });
+
         if (success)
         {
-            await BroadcastFrameAsync();
+            await session.BroadcastAsync("frame", session.Simulator.GetCurrentFrameData());
         }
     }
 
-    private async Task HandleReviveCommandAsync(WebSocket client, JsonElement data)
+    private async Task HandleReviveCommandAsync(SessionClient client, SimulationSession session, JsonElement data)
     {
         if (!TryGetUnitInfo(data, out var unitId, out var faction))
         {
-            await SendToClientAsync(client, "error", "Invalid unit info for revive command");
+            await session.SendToClientAsync(client, "error", new { message = "Invalid unit info for revive command" });
             return;
         }
 
@@ -532,17 +711,31 @@ public class WebSocketServer : IDisposable
             health = healthElement.GetInt32();
         }
 
-        var success = _simulator.ModifyUnit(unitId, faction, unit =>
+        var success = session.Simulator.ModifyUnit(unitId, faction, unit =>
         {
             unit.HP = health;
             unit.IsDead = false;
         });
 
-        await SendToClientAsync(client, "command_ack", new { command = "revive", success, unitId, health });
-        
+        await session.SendToClientAsync(client, "command_ack", new { command = "revive", success, unitId, health });
+
         if (success)
         {
-            await BroadcastFrameAsync();
+            await session.BroadcastAsync("frame", session.Simulator.GetCurrentFrameData());
+        }
+    }
+
+    private async Task HandleGetSessionLogAsync(SessionClient client, SimulationSession session)
+    {
+        try
+        {
+            var summary = session.Logger.GetSummary();
+            await session.SendToClientAsync(client, "session_log_summary", summary);
+        }
+        catch (Exception ex)
+        {
+            session.Logger.LogError($"Failed to get session log: {ex.Message}", ex);
+            await session.SendToClientAsync(client, "error", new { message = $"Failed to get session log: {ex.Message}" });
         }
     }
 
@@ -565,162 +758,26 @@ public class WebSocketServer : IDisposable
         return true;
     }
 
-    private async Task HandleGetSessionLogAsync(WebSocket client)
+    #endregion
+
+    #region Utilities
+
+    private async Task SendMessageAsync<T>(WebSocket socket, string type, T data)
     {
-        try
-        {
-            var summary = _sessionLogger.GetSummary();
-            await SendToClientAsync(client, "session_log_summary", summary);
-        }
-        catch (Exception ex)
-        {
-            _sessionLogger.LogError($"Failed to get session log: {ex.Message}", ex);
-            await SendToClientAsync(client, "error", $"Failed to get session log: {ex.Message}");
-        }
-    }
-
-    /// <summary>
-    /// Broadcasts the current frame data to all connected clients.
-    /// </summary>
-    public Task BroadcastFrameAsync()
-    {
-        if (!_simulator.IsInitialized) return Task.CompletedTask;
-
-        var frameData = _simulator.GetCurrentFrameData();
-        RecordFrame(frameData);
-
-        return Task.CompletedTask;
-    }
-
-    private void RecordFrame(FrameData frameData)
-    {
-        lock (_historyLock)
-        {
-            _frameHistory.Add(frameData);
-            if (_frameHistory.Count > MaxHistoryFrames)
-            {
-                _frameHistory.RemoveAt(0);
-            }
-        }
-
-        // Fire-and-forget broadcast
-        Task.Run(async () => await BroadcastAsync("frame", frameData));
-    }
-
-    private FrameData? GetFrameFromHistory(int frameNumber)
-    {
-        lock (_historyLock)
-        {
-            return _frameHistory.LastOrDefault(f => f.FrameNumber == frameNumber);
-        }
-    }
-
-    private FrameData? GetLatestFrame()
-    {
-        lock (_historyLock)
-        {
-            return _frameHistory.LastOrDefault();
-        }
-    }
-
-    private async Task StepBackAsync(WebSocket client)
-    {
-        _playCts?.Cancel();
-
-        var targetFrame = Math.Max(0, _simulator.CurrentFrame - 1);
-        var frame = GetFrameFromHistory(targetFrame);
-
-        if (frame == null)
-        {
-            await SendToClientAsync(client, "error", $"No frame history for frame {targetFrame}");
-            return;
-        }
-
-        _simulator.LoadState(frame);
-        await BroadcastAsync("frame", frame);
-    }
-
-    private async Task SeekAsync(WebSocket client, int targetFrame)
-    {
-        if (targetFrame < 0)
-        {
-            await SendToClientAsync(client, "error", "frameNumber must be non-negative");
-            return;
-        }
-
-        _playCts?.Cancel();
-
-        var historyFrame = GetFrameFromHistory(targetFrame);
-        if (historyFrame != null)
-        {
-            _simulator.LoadState(historyFrame);
-            await BroadcastAsync("frame", historyFrame);
-            return;
-        }
-
-        if (!_simulator.IsInitialized)
-        {
-            _simulator.Initialize();
-        }
-
-        var callbacks = new CompositeCallbacks(new WebSocketCallbacks(this), _sessionLogger);
-        FrameData? reached = null;
-
-        while (true)
-        {
-            var frameData = _simulator.Step(callbacks);
-            reached = frameData;
-
-            if (frameData.FrameNumber >= targetFrame ||
-                frameData.AllWavesCleared ||
-                frameData.MaxFramesReached)
-            {
-                break;
-            }
-        }
-
-        if (reached != null)
-        {
-            await BroadcastAsync("frame", reached);
-        }
-        else
-        {
-            await SendToClientAsync(client, "error", $"Unable to seek to frame {targetFrame}");
-        }
-    }
-
-    /// <summary>
-    /// Broadcasts a message to all connected clients.
-    /// </summary>
-    public async Task BroadcastAsync<T>(string type, T data)
-    {
-        var message = new { type, data };
-        var json = JsonSerializer.Serialize(message, _jsonOptions);
-        var bytes = Encoding.UTF8.GetBytes(json);
-
-        WebSocket[] clients;
-        lock (_clientsLock)
-        {
-            clients = _clients.Where(c => c.State == WebSocketState.Open).ToArray();
-        }
-
-        var tasks = clients.Select(client =>
-            client.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None)
-        );
-
-        await Task.WhenAll(tasks);
-    }
-
-    private async Task SendToClientAsync<T>(WebSocket client, string type, T data)
-    {
-        if (client.State != WebSocketState.Open) return;
+        if (socket.State != WebSocketState.Open) return;
 
         var message = new { type, data };
         var json = JsonSerializer.Serialize(message, _jsonOptions);
         var bytes = Encoding.UTF8.GetBytes(json);
 
-        await client.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
+        await socket.SendAsync(
+            new ArraySegment<byte>(bytes),
+            WebSocketMessageType.Text,
+            true,
+            CancellationToken.None);
     }
+
+    #endregion
 
     /// <summary>
     /// Stops the WebSocket server.
@@ -728,24 +785,11 @@ public class WebSocketServer : IDisposable
     public void Stop()
     {
         if (!_isRunning) return;
-        
+
         _isRunning = false;
         _cts.Cancel();
-        _playCts?.Cancel();
-        _simulator.Stop();
-        
-        // Save session log when stopping
-        try
-        {
-            _sessionLogger.EndSession("Server stopped");
-            var logPath = _sessionLogger.SaveToDefaultLocation();
-            Console.WriteLine($"[WebSocketServer] Session log saved: {logPath}");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[WebSocketServer] Failed to save session log: {ex.Message}");
-        }
-        
+        _sessionManager.Dispose();
+
         try
         {
             if (_httpListener.IsListening)
@@ -754,38 +798,22 @@ public class WebSocketServer : IDisposable
             }
         }
         catch { }
-        
-        lock (_clientsLock)
-        {
-            foreach (var client in _clients)
-            {
-                try
-                {
-                    if (client.State == WebSocketState.Open)
-                    {
-                        client.CloseAsync(WebSocketCloseStatus.NormalClosure, "Server shutting down", CancellationToken.None).Wait(1000);
-                    }
-                    client.Dispose();
-                }
-                catch { }
-            }
-            _clients.Clear();
-        }
+
+        Console.WriteLine("[WebSocketServer] Stopped");
     }
 
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
-        
-        // Don't save session log in Dispose if it was already saved in Stop
+
         if (_isRunning)
         {
             Stop();
         }
-        
+
         _cts.Dispose();
-        
+
         try
         {
             _httpListener.Close();
@@ -794,80 +822,24 @@ public class WebSocketServer : IDisposable
     }
 
     /// <summary>
-    /// Callback implementation that broadcasts frames via WebSocket.
+    /// Callback for seek operation that records frames.
     /// </summary>
-    private class WebSocketCallbacks : ISimulatorCallbacks
+    private class SeekCallbacks : ISimulatorCallbacks
     {
-        private readonly WebSocketServer _server;
+        private readonly SimulationSession _session;
 
-        public WebSocketCallbacks(WebSocketServer server)
+        public SeekCallbacks(SimulationSession session)
         {
-            _server = server;
+            _session = session;
         }
 
         public void OnFrameGenerated(FrameData frameData)
         {
-            _server.RecordFrame(frameData);
+            _session.RecordFrame(frameData);
         }
 
-        public void OnSimulationComplete(int finalFrameNumber, string reason)
-        {
-            Task.Run(async () => await _server.BroadcastAsync("simulation_complete", new { finalFrame = finalFrameNumber, reason }));
-        }
-
-        public void OnStateChanged(string changeDescription)
-        {
-            Task.Run(async () => await _server.BroadcastAsync("state_change", new { description = changeDescription }));
-        }
-
-        public void OnUnitEvent(UnitEventData eventData)
-        {
-            Task.Run(async () => await _server.BroadcastAsync("unit_event", eventData));
-        }
-    }
-
-    /// <summary>
-    /// Composite callback that forwards events to multiple callback handlers.
-    /// </summary>
-    private class CompositeCallbacks : ISimulatorCallbacks
-    {
-        private readonly ISimulatorCallbacks[] _callbacks;
-
-        public CompositeCallbacks(params ISimulatorCallbacks[] callbacks)
-        {
-            _callbacks = callbacks;
-        }
-
-        public void OnFrameGenerated(FrameData frameData)
-        {
-            foreach (var callback in _callbacks)
-            {
-                callback.OnFrameGenerated(frameData);
-            }
-        }
-
-        public void OnSimulationComplete(int finalFrameNumber, string reason)
-        {
-            foreach (var callback in _callbacks)
-            {
-                callback.OnSimulationComplete(finalFrameNumber, reason);
-            }
-        }
-
-        public void OnStateChanged(string changeDescription)
-        {
-            foreach (var callback in _callbacks)
-            {
-                callback.OnStateChanged(changeDescription);
-            }
-        }
-
-        public void OnUnitEvent(UnitEventData eventData)
-        {
-            foreach (var callback in _callbacks)
-            {
-                callback.OnUnitEvent(eventData);
-            }
-        }
+        public void OnSimulationComplete(int finalFrameNumber, string reason) { }
+        public void OnStateChanged(string changeDescription) { }
+        public void OnUnitEvent(UnitEventData eventData) { }
     }
 }
