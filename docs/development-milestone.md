@@ -686,6 +686,43 @@ public void Simulation_SameInput_ProducesSameOutput()
 - [x] Determinism 테스트 통과
 - [x] CI 파이프라인에서 자동 실행
 
+### M1.5: 경로 탐색 시스템 구현
+
+**담당**: 코어 개발/아키텍처
+
+**작업 내용**:
+
+정적 장애물(벽, 건물 등)을 피해 목적지까지 이동할 수 있는 A* 기반 경로 탐색 시스템을 구현합니다.
+
+**1. 그리드 시스템 구축**
+- `PathfindingGrid.cs` 클래스를 생성합니다.
+- 시뮬레이션 맵을 2D 그리드로 표현하고, 각 노드의 이동 가능 여부를 관리합니다.
+- 초기 버전에서는 장애물이 없는 열린 맵을 가정하고, 추후 장애물 설정 기능을 추가합니다.
+
+**2. A* 알고리즘 구현**
+- `AStarPathfinder.cs` 클래스를 생성합니다.
+- `PathfindingGrid`를 입력받아, 출발지와 목적지 사이의 최단 경로를 노드 리스트 형태로 계산하여 반환하는 기능을 구현합니다.
+- 휴리스틱 함수, Open/Closed 리스트 등을 포함한 표준 A* 로직을 따릅니다.
+
+**3. 기존 행동 로직과 통합**
+- `EnemyBehavior.cs`와 `SquadBehavior.cs`를 수정합니다.
+- 유닛이 이동할 때, 목적지로 직접 향하는 대신 `AStarPathfinder`를 호출하여 경로를 얻습니다.
+- 유닛은 반환된 경로의 웨이포인트를 순차적으로 따라 이동하도록 `CurrentDestination`을 업데이트합니다.
+- 기존의 `AvoidanceSystem`은 웨이포인트 사이를 이동하는 동안 동적 장애물(다른 유닛)을 회피하는 데 계속 사용됩니다.
+
+**4. 유닛 테스트 추가**
+- `UnitSimulator.Core.Tests` 프로젝트에 `PathfindingTests.cs`를 추가합니다.
+- 직선 경로, 장애물을 우회하는 경로 등에 대한 테스트 케이스를 작성하여 경로 탐색의 정확성을 검증합니다.
+
+**입력**: M1.4까지 완료된 `UnitSimulator.Core` 프로젝트
+**출력**: 경로 탐색 기능이 통합된 `UnitSimulator.Core`
+
+**완료 조건**:
+- [ ] `PathfindingGrid.cs` 및 `AStarPathfinder.cs` 클래스 파일 생성 및 구현 완료
+- [ ] `EnemyBehavior` 및 `SquadBehavior`가 `AStarPathfinder`를 사용하여 경로를 생성하고 따라 이동하도록 수정됨
+- [ ] 간단한 장애물이 배치된 테스트 환경에서 유닛이 장애물을 성공적으로 우회하여 목적지에 도달함
+- [ ] 경로 탐색 관련 유닛 테스트가 추가되고 모두 통과함
+
 ---
 
 ## 5. Phase 2: 데이터 파이프라인 정규화
@@ -769,24 +806,31 @@ data/
 **작업 내용**:
 
 ```
-npm run data:sync     # Google Sheets → raw/
-npm run data:convert  # raw/ → processed/
-npm run data:validate # 스키마 검증
-npm run data:build    # 전체 파이프라인
+npm run data:import   # (선택) Sheets/외부 → raw/
+npm run data:normalize # raw/ → processed/ (JSON 정규화)
+npm run data:validate # 스키마 검증 (processed/)
+npm run data:diff     # 변경사항 diff 출력
+npm run data:build    # normalize + validate + diff
 ```
 
 **파이프라인 구조**:
 
+```mermaid
+flowchart LR
+  Sheets[Google Sheets (optional)] --> Import[Import / Normalize]
+  Raw[raw/ (optional)] --> Normalize
+  JSON[Repo JSON (processed)] --> Normalize
+  Import --> Raw
+  Normalize --> Validate
+  Validate --> Diff
+  Diff --> Processed[processed/*.json]
+  Processed --> Core[UnitSimulator.Core]
+  Processed --> Engines[Unity / Godot / Unreal]
+  Processed --> Studio[Sim Studio]
 ```
-┌─────────────────┐     ┌──────────────┐     ┌───────────────┐
-│  Google Sheets  │────►│ ReferenceModels│────►│ processed/*.json│
-│  (원본 데이터)   │     │ (C# 변환기)   │     │ (게임 데이터)  │
-└─────────────────┘     └──────────────┘     └───────────────┘
-                                                     │
-                              ┌──────────────────────┼──────────────────────┐
-                              ▼                      ▼                      ▼
-                        UnitSimulator.Core    Unity/Godot/Unreal    sim-studio
-```
+
+> **Note**: JSON을 단일 소스로 유지하는 경우, `raw/`와 `import` 단계는 생략 가능하며
+> 파이프라인은 `normalize` + `validate` 중심으로 축소됨.
 
 **입력**: M2.1 스키마
 **출력**: 자동화된 데이터 파이프라인
