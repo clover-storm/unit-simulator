@@ -5,5 +5,6 @@ namespace UnitSimulator.Core.Contracts;
 /// </summary>
 public sealed class WaveDefinition
 {
+    /// <summary>1-based wave index.</summary>
     public int WaveNumber { get; init; }
 }

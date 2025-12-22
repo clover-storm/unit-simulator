@@ -5,5 +5,6 @@ namespace UnitSimulator.Core.Contracts;
 /// </summary>
 public sealed class GameBalance
 {
+    /// <summary>Contract version for balance data.</summary>
     public int Version { get; init; } = 1;
 }
