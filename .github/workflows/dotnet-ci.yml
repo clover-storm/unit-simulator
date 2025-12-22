@@ -25,12 +25,12 @@ jobs:
 
     # 3. 의존성 복원
     - name: Restore dependencies
-      run: dotnet restore
+      run: dotnet restore UnitSimulator.sln
 
     # 4. 프로젝트 빌드
     - name: Build
-      run: dotnet build --no-restore
+      run: dotnet build UnitSimulator.sln --no-restore
 
-    # 5. (선택 사항) 테스트 실행 - 현재 프로젝트에는 테스트가 없으므로 주석 처리
-    # - name: Test
-    #   run: dotnet test --no-build --verbosity normal
+    # 5. 테스트 실행
+    - name: Test
+      run: dotnet test UnitSimulator.sln --no-build --verbosity normal
