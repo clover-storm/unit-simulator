@@ -55,6 +55,16 @@ public record ReviveUnitCommand(
 ) : ISimulationCommand;
 
 /// <summary>
+/// Command to set a unit's health directly.
+/// </summary>
+public record SetUnitHealthCommand(
+    int FrameNumber,
+    int UnitId,
+    UnitFaction Faction,
+    int HP
+) : ISimulationCommand;
+
+/// <summary>
 /// Command to remove a unit from the simulation entirely.
 /// </summary>
 public record RemoveUnitCommand(

@@ -558,6 +558,44 @@ namespace UnitSimulator.Core.Contracts
 }
 ```
 
+**구현 상세 계획**:
+
+1) **Contracts 디렉토리 구성**
+- `UnitSimulator.Core/Contracts/` 생성
+- 계약 인터페이스 파일 추가:
+  - `ISimulation.cs`
+  - `IUnitController.cs`
+  - `IDataProvider.cs`
+  - `ISimulationObserver.cs`
+- XML 문서 주석 포함
+
+2) **계약 타입 정의**
+- `SimulationStatus.cs` (enum)
+- `GameConfig.cs` (시뮬 설정: 맵 크기, 최대 프레임, RNG seed, 초기 웨이브 등)
+- `UnitStats.cs`, `WaveDefinition.cs`, `GameBalance.cs`는 최소 스텁으로 정의
+  - M2 데이터 파이프라인 확정 후 확장
+
+3) **SimulatorCore 어댑터 제공**
+- `SimulationFacade`(가칭) 클래스로 `ISimulation` + `IUnitController` 구현
+- 내부에서 `SimulatorCore` 래핑
+- 매핑 기준:
+  - `Initialize(GameConfig)` → `SimulatorCore.Initialize()` + config 적용
+  - `Step()` → `SimulatorCore.Step()`
+  - `GetCurrentState()` → `SimulatorCore.GetCurrentFrameData()`
+  - `LoadState()` → `SimulatorCore.LoadState()`
+  - `Status`/`IsComplete` → `FrameData` 기반 계산
+
+4) **Observer/Callbacks 브릿지**
+- `ISimulationObserver`와 `ISimulatorCallbacks` 연결용 브릿지 클래스 추가
+- 예: `SimulationObserverCallbacks : ISimulatorCallbacks`
+- 엔진/툴 쪽에서는 `ISimulationObserver`만 의존
+
+5) **유닛 제어 경로 결정**
+- 네임스페이스는 `UnitSimulator.Core.Contracts`로 통일
+- `IUnitController`는 고수준 메서드(Spawn/Move/Damage 등) 네이밍 사용
+- 내부 구현은 `ISimulationCommand`를 생성해 Command Queue에 enqueue
+- 즉시 반영 API(`ModifyUnit/InjectUnit`)는 계약에서 제외
+
 **입력**: 기존 코드 분석
 **출력**: `Contracts/` 디렉토리에 인터페이스 정의
 

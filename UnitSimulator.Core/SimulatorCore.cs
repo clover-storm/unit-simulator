@@ -173,6 +173,18 @@ public class SimulatorCore
                     u.IsDead = false;
                 }, callbacks);
                 break;
+
+            case SetUnitHealthCommand setHealth:
+                ModifyUnit(setHealth.UnitId, setHealth.Faction, u =>
+                {
+                    u.HP = setHealth.HP;
+                    u.IsDead = setHealth.HP <= 0;
+                    if (u.IsDead)
+                    {
+                        u.Velocity = Vector2.Zero;
+                    }
+                }, callbacks);
+                break;
         }
     }
 
