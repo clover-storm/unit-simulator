@@ -109,41 +109,304 @@ Phase 1          Phase 2          Phase 3          Phase 4          Phase 5
 
 **작업 내용**:
 
+#### 현재 파일 분석 결과
+
+| 파일 | 목표 프로젝트 | 의존성 | 비고 |
+|------|--------------|--------|------|
+| `Unit.cs` | Core | System.Numerics, Constants | UnitRole, UnitFaction enum 포함 |
+| `FrameData.cs` | Core | System.Text.Json, Unit, WaveManager | SerializableVector2, UnitStateData 포함 |
+| `ISimulatorCallbacks.cs` | Core | System.Numerics | UnitEventData, UnitEventType, DefaultSimulatorCallbacks 포함 |
+| `SimulatorCore.cs` | Core | Unit, WaveManager, **Renderer** | ⚠️ Renderer 의존성 제거 필요 (M1.2 선행 또는 동시 진행) |
+| `AvoidanceSystem.cs` | Core | Unit, Constants, MathUtils | 순수 로직 |
+| `MathUtils.cs` | Core | Unit, Constants | 순수 로직 |
+| `SquadBehavior.cs` | Core | Unit, Constants, MathUtils, AvoidanceSystem | 순수 로직 |
+| `EnemyBehavior.cs` | Core | Unit, Constants, MathUtils, AvoidanceSystem | 순수 로직 |
+| `WaveManager.cs` | **분리 필요** | Constants, Unit | WaveManager(Server, 명령 생성) + Renderer(Server) 분리 |
+| `Constants.cs` | **분리 필요** | 없음 | 게임 상수(Core) + 인프라 상수(Server) 혼재 |
+| `GuiIntegration.cs` | Core | SimulatorCore, FrameData, ISimulatorCallbacks | 인터페이스/통합 레이어 |
+| `WebSocketServer.cs` | Server | System.Net.WebSockets, SessionManager | 네트워킹 인프라 |
+| `SessionManager.cs` | Server | SimulationSession, SessionClient | 세션 관리 |
+| `SessionClient.cs` | Server | System.Net.WebSockets | 클라이언트 표현 |
+| `SessionLogger.cs` | Server | FrameData, ISimulatorCallbacks, System.Text.Json | 로깅 인프라 |
+| `SimulationSession.cs` | Server | SimulatorCore, SessionClient, WebSocket | 세션 격리 |
+| `Program.cs` | Server | 전체 | 진입점 |
+
+#### 주요 분리 작업
+
+**1. WaveManager.cs 파일 분리**
+```csharp
+// WaveManager.cs → Core로 이동 (웨이브 로직만)
+public class WaveManager { ... }
+
+// Renderer.cs → Server로 이동 (ImageSharp 의존)
+public class Renderer { ... }
+```
+
+**2. Constants.cs 분리**
+```csharp
+// Constants.cs (Core) - 게임 로직 상수
+public static class GameConstants
+{
+    public const float UNIT_RADIUS = 20f;
+    public const int FRIENDLY_HP = 100;
+    public const float ATTACK_COOLDOWN = 30f;
+    // ... 게임 밸런스 관련
+}
+
+// ServerConstants.cs (Server) - 인프라 상수
+public static class ServerConstants
+{
+    public const int IMAGE_WIDTH = 2000;
+    public const int IMAGE_HEIGHT = 1000;
+    public const string OUTPUT_DIRECTORY = "output";
+    // ... 렌더링/출력 관련
+}
+```
+
+**3. SimulatorCore 렌더링 의존성 제거**
+```csharp
+// 현재: SimulatorCore가 Renderer를 직접 생성
+private Renderer? _renderer;
+_renderer = new Renderer(_outputDirectory);
+
+// 목표: 렌더링을 외부에서 주입하거나 콜백으로 처리
+public interface IFrameRenderer
+{
+    void RenderFrame(FrameData frameData);
+}
+```
+
+**4. FrameData의 WaveManager 의존성 제거**
+
+`FrameData.FromSimulationState()`가 WaveManager를 파라미터로 받고 있어 분리 시 문제 발생.
+
+```csharp
+// 현재 (Core가 Server 타입에 의존)
+public static FrameData FromSimulationState(
+    int frameNumber,
+    List<Unit> friendlies,
+    List<Unit> enemies,
+    Vector2 mainTarget,
+    WaveManager waveManager)  // ❌ Server 타입
+{
+    CurrentWave = waveManager.CurrentWave,
+    AllWavesCleared = !waveManager.HasMoreWaves && ...
+}
+
+// 변경 후 (값만 전달)
+public static FrameData FromSimulationState(
+    int frameNumber,
+    List<Unit> friendlies,
+    List<Unit> enemies,
+    Vector2 mainTarget,
+    int currentWave,          // ✅ 값만 전달
+    bool hasMoreWaves)        // ✅ 값만 전달
+{
+    CurrentWave = currentWave,
+    AllWavesCleared = !hasMoreWaves && ...
+}
+```
+
+**5. Command Queue 기반 유닛 생성 구조**
+
+현재 SimulatorCore가 WaveManager를 직접 호출하여 유닛을 생성하는 구조를
+외부에서 명령을 주입받는 구조로 변경.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        Server                                │
+│  ┌─────────────┐    ┌──────────────────┐                    │
+│  │ WaveManager │───►│ SpawnUnitCommand │──┐                 │
+│  │ (웨이브 로직) │    │ MoveUnitCommand  │  │                 │
+│  └─────────────┘    │ DamageCommand    │  │                 │
+│                     └──────────────────┘  │                 │
+└───────────────────────────────────────────│─────────────────┘
+                                            ▼
+                                    ┌───────────────┐
+                                    │ Command Queue │
+                                    └───────┬───────┘
+                                            │
+┌───────────────────────────────────────────│─────────────────┐
+│                        Core               ▼                  │
+│  ┌────────────────────────────────────────────────┐         │
+│  │              SimulatorCore                      │         │
+│  │  ┌──────────────────┐   ┌──────────────────┐   │         │
+│  │  │ CommandProcessor │──►│ Unit Management  │   │         │
+│  │  │  (명령 컨슘)      │   │  (상태 변경)      │   │         │
+│  │  └──────────────────┘   └──────────────────┘   │         │
+│  └────────────────────────────────────────────────┘         │
+└─────────────────────────────────────────────────────────────┘
+```
+
+```csharp
+// ============ Core ============
+
+// 명령 인터페이스 (직렬화 가능, 리플레이 지원)
+public interface ISimulationCommand
+{
+    int FrameNumber { get; }  // 실행될 프레임
+}
+
+public record SpawnUnitCommand(
+    int FrameNumber,
+    Vector2 Position,
+    UnitRole Role,
+    UnitFaction Faction,
+    int? HP = null
+) : ISimulationCommand;
+
+// SimulatorCore - 명령 큐 처리
+public class SimulatorCore
+{
+    private readonly Queue<ISimulationCommand> _commandQueue = new();
+
+    public void EnqueueCommand(ISimulationCommand command)
+        => _commandQueue.Enqueue(command);
+
+    public void EnqueueCommands(IEnumerable<ISimulationCommand> commands)
+    {
+        foreach (var cmd in commands) _commandQueue.Enqueue(cmd);
+    }
+
+    public FrameData Step(ISimulatorCallbacks? callbacks = null)
+    {
+        ProcessCommands(_currentFrame, callbacks);  // 명령 먼저 처리
+        // ... 기존 시뮬레이션 로직
+    }
+}
+
+// ============ Server ============
+
+// WaveManager는 명령 생성만 담당
+public class WaveManager
+{
+    public IEnumerable<SpawnUnitCommand> GetWaveCommands(int waveNumber, int frameNumber)
+    {
+        return _waveSpawns[waveNumber].Select(pos => new SpawnUnitCommand(
+            FrameNumber: frameNumber,
+            Position: pos,
+            Role: UnitRole.Melee,
+            Faction: UnitFaction.Enemy
+        ));
+    }
+}
+```
+
+**장점**:
+- Core가 WaveManager에 의존하지 않음 (역전)
+- 모든 명령이 직렬화 가능 → 리플레이/네트워크 동기화
+- Determinism 보장: 동일 명령 시퀀스 = 동일 결과
+- Core 단독 테스트 가능 (명령 주입)
+
+#### 목표 구조
+
 ```
 [현재]                              [목표]
-UnitMove/                           UnitSimulator.Core/      ← 순수 코어
-├── SimulatorCore.cs                ├── Simulation/
-├── Unit.cs                         │   ├── SimulatorCore.cs
-├── WebSocketServer.cs              │   ├── FrameData.cs
-└── ...                             │   └── ISimulatorCallbacks.cs
-                                    ├── Units/
-                                    │   ├── Unit.cs
-                                    │   ├── UnitFaction.cs
-                                    │   └── UnitRole.cs
-                                    ├── Behaviors/
-                                    │   ├── IBehavior.cs
-                                    │   ├── SquadBehavior.cs
-                                    │   └── EnemyBehavior.cs
-                                    ├── Systems/
-                                    │   ├── WaveManager.cs
-                                    │   └── CombatSystem.cs
-                                    └── Data/
-                                        ├── IDataProvider.cs
-                                        └── GameConfig.cs
-
-                                    UnitSimulator.Server/    ← 개발 도구
-                                    ├── WebSocketServer.cs
-                                    ├── SessionManager.cs
-                                    └── Program.cs
+UnitMove/                           UnitSimulator.Core/
+├── SimulatorCore.cs                ├── SimulatorCore.cs (Renderer, WaveManager 제거)
+├── Unit.cs                         ├── Unit.cs (UnitRole, UnitFaction 포함)
+├── FrameData.cs                    ├── FrameData.cs
+├── ISimulatorCallbacks.cs          ├── ISimulatorCallbacks.cs
+├── WaveManager.cs ─┐               ├── Commands/
+├── AvoidanceSystem.cs              │   ├── ISimulationCommand.cs
+├── MathUtils.cs                    │   ├── SpawnUnitCommand.cs
+├── SquadBehavior.cs                │   └── CommandProcessor.cs
+├── EnemyBehavior.cs                ├── AvoidanceSystem.cs
+├── Constants.cs ───┤               ├── MathUtils.cs
+├── GuiIntegration.cs               ├── SquadBehavior.cs
+│                   │               ├── EnemyBehavior.cs
+│                   │               ├── GameConstants.cs
+│                   │               └── GuiIntegration.cs
+│                   │
+├── WebSocketServer.cs              UnitSimulator.Server/
+├── SessionManager.cs               ├── WebSocketServer.cs
+├── SessionClient.cs                ├── SessionManager.cs
+├── SessionLogger.cs                ├── SessionClient.cs
+├── SimulationSession.cs            ├── SessionLogger.cs
+└── Program.cs      │               ├── SimulationSession.cs
+                    │               ├── Program.cs
+                    │               ├── WaveManager.cs (명령 생성만)
+                    └───────────────├── Renderer.cs (WaveManager에서 분리)
+                                    └── ServerConstants.cs
 ```
+
+#### 프로젝트 생성 가이드
+
+**1. 솔루션 및 프로젝트 생성**
+```bash
+# 솔루션 생성 (기존 UnitMove.sln 대체 또는 병행)
+dotnet new sln -n UnitSimulator
+
+# Core 프로젝트 (클래스 라이브러리)
+dotnet new classlib -n UnitSimulator.Core -o UnitSimulator.Core
+dotnet sln add UnitSimulator.Core
+
+# Server 프로젝트 (콘솔 앱)
+dotnet new console -n UnitSimulator.Server -o UnitSimulator.Server
+dotnet sln add UnitSimulator.Server
+
+# Server → Core 참조 추가
+dotnet add UnitSimulator.Server reference UnitSimulator.Core
+```
+
+**2. Core csproj 설정**
+```xml
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>UnitSimulator.Core</RootNamespace>
+  </PropertyGroup>
+  <!-- 외부 패키지 없음 (System.Text.Json은 기본 포함) -->
+</Project>
+```
+
+**3. Server csproj 설정**
+```xml
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>UnitSimulator.Server</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\UnitSimulator.Core\UnitSimulator.Core.csproj" />
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
+    <PackageReference Include="SixLabors.ImageSharp.Drawing" Version="2.1.7" />
+  </ItemGroup>
+</Project>
+```
+
+**4. Namespace 변경**
+```csharp
+// Core 파일들
+namespace UnitSimulator.Core;           // 또는 유지: namespace UnitSimulator;
+namespace UnitSimulator.Core.Commands;
+
+// Server 파일들
+namespace UnitSimulator.Server;
+```
+
+> **Note**: namespace를 변경하지 않고 `UnitSimulator`로 유지해도 됨.
+> 단, 프로젝트 분리만으로도 의존성 격리 효과는 동일함.
 
 **입력**: 현재 UnitMove 프로젝트
 **출력**: 분리된 두 개의 프로젝트 (Core, Server)
 
 **완료 조건**:
-- [ ] UnitSimulator.Core는 System.* 외 외부 의존성 없음
-- [ ] UnitSimulator.Server는 Core를 참조
-- [ ] 기존 기능 동작 확인
+- [ ] UnitSimulator.sln, UnitSimulator.Core, UnitSimulator.Server 프로젝트 생성
+- [ ] WaveManager.cs에서 Renderer 클래스를 별도 파일로 분리 (Server/Renderer.cs)
+- [ ] WaveManager를 Server로 이동, 명령 생성만 담당하도록 변경
+- [ ] Constants.cs를 GameConstants(Core)와 ServerConstants(Server)로 분리
+- [ ] FrameData.FromSimulationState()에서 WaveManager 파라미터 제거 (값 전달로 변경)
+- [ ] SimulatorCore에서 Renderer, WaveManager 직접 참조 제거
+- [ ] Command Queue 구조 구현 (ISimulationCommand, SpawnUnitCommand 등)
+- [ ] UnitSimulator.Core는 System.* 및 System.Text.Json 외 외부 의존성 없음
+- [ ] UnitSimulator.Server는 Core를 참조하고 ImageSharp 패키지 포함
+- [ ] 기존 기능 동작 확인 (dotnet build, 시뮬레이션 실행)
 
 ---
 
@@ -151,33 +414,74 @@ UnitMove/                           UnitSimulator.Core/      ← 순수 코어
 
 **담당**: 코어 개발
 
+> **Note**: M1.1과 동시 진행 가능. M1.1의 파일 분리 작업과 함께 수행하면 효율적.
+
+**현재 상태 분석**:
+
+```
+SimulatorCore.cs:80    private Renderer? _renderer;
+SimulatorCore.cs:188   _renderer = new Renderer(_outputDirectory);
+SimulatorCore.cs:357   if (_renderingEnabled && _renderer != null)
+SimulatorCore.cs:359       _renderer.GenerateFrame(...);
+
+WaveManager.cs:4-9     using SixLabors.ImageSharp.*;  // Renderer 클래스에서 사용
+WaveManager.cs:89-354  public class Renderer { ... }  // ImageSharp 의존
+```
+
 **작업 내용**:
 
-현재 `Renderer` 클래스가 `SixLabors.ImageSharp`에 의존. 이를 코어에서 완전히 분리.
-
+**1단계: Renderer 클래스 분리** (M1.1과 동시)
 ```csharp
-// 제거 대상 (Core에서)
-using SixLabors.ImageSharp;
-using SixLabors.Fonts;
+// WaveManager.cs에서 Renderer 클래스를 Server/Renderer.cs로 이동
+// WaveManager.cs는 순수 웨이브 로직만 유지
+```
 
-// Core는 오직 데이터만 출력
+**2단계: SimulatorCore에서 렌더링 분리**
+```csharp
+// 현재 SimulatorCore.cs
+private Renderer? _renderer;
+_renderer = new Renderer(_outputDirectory);
+_renderer.GenerateFrame(...);
+
+// 변경 후: 렌더링을 콜백으로 처리
+// ISimulatorCallbacks.OnFrameGenerated()가 이미 FrameData를 전달하므로
+// 외부에서 렌더링 처리 가능
+
+// SimulatorCore에서 제거할 코드:
+// - private Renderer? _renderer;
+// - _renderer = new Renderer(_outputDirectory);
+// - if (_renderingEnabled && _renderer != null) { ... }
+// - RenderingEnabled 프로퍼티 (선택사항)
+```
+
+**3단계: Server에서 렌더링 구현**
+```csharp
+// Server/Renderer.cs (WaveManager.cs에서 분리된 파일)
+public class ImageRenderer : ISimulatorCallbacks
+{
+    public void OnFrameGenerated(FrameData frameData)
+    {
+        // 기존 Renderer.GenerateFrame() 로직
+    }
+}
+
+// 또는 별도 인터페이스
 public interface IFrameRenderer
 {
     void RenderFrame(FrameData frameData);
 }
-
-// Server에서 구현
-public class ImageRenderer : IFrameRenderer { ... }
-public class NullRenderer : IFrameRenderer { ... }  // 헤드리스 모드
 ```
 
-**입력**: M1.1 완료된 프로젝트
+**입력**: M1.1과 동시 또는 M1.1 완료된 프로젝트
 **출력**: 렌더링 로직이 Server로 이동된 프로젝트
 
 **완료 조건**:
+- [ ] WaveManager.cs에서 Renderer 클래스 분리 (Server/Renderer.cs)
+- [ ] SimulatorCore.cs에서 Renderer 참조 제거
 - [ ] Core 프로젝트에 ImageSharp 참조 없음
-- [ ] Core는 .NET Standard 2.1 호환
-- [ ] 렌더링은 선택적 기능
+- [ ] Core의 csproj에서 SixLabors.* 패키지 제거
+- [ ] 렌더링은 Server에서 ISimulatorCallbacks를 통해 처리
+- [ ] 기존 렌더링 기능 동작 확인
 
 ---
 
@@ -843,15 +1147,20 @@ jobs:
 
 ```
 동시 진행 가능:
+├── M1.1 (구조 재편) + M1.2 (렌더링 분리) ← 파일 분리 작업 동시 수행 권장
 ├── M1.3 (인터페이스) + M2.1 (스키마)     ← 서로 독립적
 ├── M1.4 (테스트) + M2.2 (파이프라인)     ← M1.3, M2.1 완료 후
 └── M3.3 (엔진) + M2.3 (데이터 로더)      ← 각각 다른 영역
 
 순차 진행 필요:
-├── M1.1 → M1.2 → M1.3                    ← 코어 분리 체인
+├── (M1.1 + M1.2) → M1.3 → M1.4           ← 코어 분리 체인
 ├── M2.1 → M2.2 → M2.3                    ← 데이터 체인
 └── M3.1 → M3.2 → M3.3 → M3.4             ← 엔진 체인
 ```
+
+> **권장 작업 순서**: M1.1과 M1.2는 동시 진행을 권장합니다.
+> WaveManager.cs에서 Renderer 분리, Constants.cs 분리, SimulatorCore 수정을
+> 한 번에 수행하면 중복 작업을 줄일 수 있습니다.
 
 ---
 
