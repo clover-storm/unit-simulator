@@ -78,6 +78,10 @@ public class Program
         Console.WriteLine($"  - GET  http://localhost:{port}/sessions     (list sessions)");
         Console.WriteLine($"  - POST http://localhost:{port}/sessions     (create session)");
         Console.WriteLine($"  - GET  http://localhost:{port}/sessions/{{id}} (session info)");
+        Console.WriteLine($"  - GET  http://localhost:{port}/data/files   (list data files)");
+        Console.WriteLine($"  - GET  http://localhost:{port}/data/file?path=... (read data file)");
+        Console.WriteLine($"  - PUT  http://localhost:{port}/data/file?path=... (write data file)");
+        Console.WriteLine($"  - DELETE http://localhost:{port}/data/file?path=... (delete data file)");
 
         await server.StartAsync();
     }

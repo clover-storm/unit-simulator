@@ -39,11 +39,196 @@ body {
   gap: 1rem;
 }
 
+.header-tabs {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.tab-button {
+  background: transparent;
+  color: #eaeaea;
+  border: 1px solid #0f3460;
+  padding: 0.4rem 0.75rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.tab-button.active {
+  border-color: #e94560;
+  color: #e94560;
+}
+
 .main-content {
   display: flex;
   flex: 1;
   padding: 1rem;
   gap: 1rem;
+}
+
+.data-editor {
+  display: flex;
+  flex: 1;
+  padding: 1rem;
+  gap: 1rem;
+}
+
+.data-editor-sidebar {
+  width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.data-editor-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 65vh;
+  overflow-y: auto;
+}
+
+.data-file {
+  display: flex;
+  flex-direction: column;
+  background-color: #1a1a2e;
+  border: 1px solid #0f3460;
+  padding: 0.5rem;
+  border-radius: 6px;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+
+.data-file.active {
+  border-color: #e94560;
+}
+
+.data-file-name {
+  font-weight: 600;
+}
+
+.data-file-meta {
+  font-size: 0.75rem;
+  color: #9ca3af;
+}
+
+.data-editor-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.data-editor-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+}
+
+.data-editor-subtitle {
+  font-size: 0.85rem;
+  color: #9ca3af;
+}
+
+.data-editor-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.data-editor-error {
+  padding: 0.5rem;
+  border-radius: 6px;
+  background-color: rgba(248, 113, 113, 0.15);
+  color: #f87171;
+}
+
+.data-editor-status {
+  padding: 0.5rem;
+  border-radius: 6px;
+  background-color: rgba(74, 222, 128, 0.15);
+  color: #4ade80;
+}
+
+.data-editor-empty {
+  color: #9ca3af;
+}
+
+.data-editor-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.data-editor-records {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 1rem;
+}
+
+.data-editor-record-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.data-editor-record-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.data-editor-record-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.data-editor-records-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  max-height: 45vh;
+  overflow-y: auto;
+}
+
+.data-record {
+  text-align: left;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #0f3460;
+  border-radius: 6px;
+  background-color: #1a1a2e;
+  color: inherit;
+  cursor: pointer;
+}
+
+.data-record.active {
+  border-color: #e94560;
+}
+
+.data-editor-record-editor textarea,
+.data-editor-raw textarea {
+  width: 100%;
+  background-color: #0f0f23;
+  border: 1px solid #0f3460;
+  color: #eaeaea;
+  border-radius: 6px;
+  padding: 0.5rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+.data-editor-create {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.data-editor-create input {
+  flex: 1;
+  background-color: #0f0f23;
+  border: 1px solid #0f3460;
+  color: #eaeaea;
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem;
 }
 
 .simulation-view {

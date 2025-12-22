@@ -7,11 +7,13 @@ import UnitStateViewer from './components/UnitStateViewer';
 import CommandPanel from './components/CommandPanel';
 import SimulationControls from './components/SimulationControls';
 import SessionSelector from './components/SessionSelector';
+import DataEditor from './components/DataEditor';
 
 const API_BASE_URL = 'http://localhost:5000';
 const WS_BASE_URL = 'ws://localhost:5000/ws';
 
 function App() {
+  const [activeView, setActiveView] = useState<'sim' | 'data'>('sim');
   // Session selection state
   const [selectedSession, setSelectedSession] = useState<string | null | undefined>(undefined);
   const [showSessionSelector, setShowSessionSelector] = useState(true);
@@ -158,12 +160,55 @@ function App() {
   // Check if user can control (owner and owner connected)
   const canControl = role === 'owner' && isOwnerConnected;
 
+  if (activeView === 'data') {
+    return (
+      <div className="app">
+        <header className="header">
+          <h1>Unit Simulator - Sim Studio</h1>
+          <div className="header-controls">
+            <div className="header-tabs">
+              <button
+                className={`tab-button ${activeView === 'sim' ? 'active' : ''}`}
+                onClick={() => setActiveView('sim')}
+              >
+                Simulation
+              </button>
+              <button
+                className={`tab-button ${activeView === 'data' ? 'active' : ''}`}
+                onClick={() => setActiveView('data')}
+              >
+                Data Editor
+              </button>
+            </div>
+          </div>
+        </header>
+        <DataEditor apiBaseUrl={API_BASE_URL} />
+      </div>
+    );
+  }
+
   // Show session selector if not connected to a session
   if (showSessionSelector || selectedSession === undefined) {
     return (
       <div className="app">
         <header className="header">
           <h1>Unit Simulator - Sim Studio</h1>
+          <div className="header-controls">
+            <div className="header-tabs">
+              <button
+                className={`tab-button ${activeView === 'sim' ? 'active' : ''}`}
+                onClick={() => setActiveView('sim')}
+              >
+                Simulation
+              </button>
+              <button
+                className={`tab-button ${activeView === 'data' ? 'active' : ''}`}
+                onClick={() => setActiveView('data')}
+              >
+                Data Editor
+              </button>
+            </div>
+          </div>
         </header>
         <SessionSelector
           apiBaseUrl={API_BASE_URL}
@@ -178,6 +223,20 @@ function App() {
       <header className="header">
         <h1>Unit Simulator - Sim Studio</h1>
         <div className="header-controls">
+          <div className="header-tabs">
+            <button
+              className={`tab-button ${activeView === 'sim' ? 'active' : ''}`}
+              onClick={() => setActiveView('sim')}
+            >
+              Simulation
+            </button>
+            <button
+              className={`tab-button ${activeView === 'data' ? 'active' : ''}`}
+              onClick={() => setActiveView('data')}
+            >
+              Data Editor
+            </button>
+          </div>
           <div className="session-info">
             {sessionId && (
               <>

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.WebSockets;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
@@ -16,6 +17,7 @@ public class WebSocketServer : IDisposable
     private readonly CancellationTokenSource _cts = new();
     private readonly JsonSerializerOptions _jsonOptions;
     private readonly int _port;
+    private readonly string _dataRoot;
     private bool _isRunning;
     private bool _disposed;
 
@@ -25,6 +27,8 @@ public class WebSocketServer : IDisposable
         _sessionManager = new SessionManager(sessionOptions);
         _httpListener = new HttpListener();
         _httpListener.Prefixes.Add($"http://localhost:{port}/");
+
+        _dataRoot = Path.Combine(Directory.GetCurrentDirectory(), "data", "processed");
 
         _jsonOptions = new JsonSerializerOptions
         {
@@ -83,7 +87,7 @@ public class WebSocketServer : IDisposable
 
         // Add CORS headers
         response.Headers.Add("Access-Control-Allow-Origin", "*");
-        response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+        response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
         response.Headers.Add("Access-Control-Allow-Headers", "Content-Type");
 
         if (context.Request.HttpMethod == "OPTIONS")
@@ -106,6 +110,14 @@ public class WebSocketServer : IDisposable
             else if (path.StartsWith("/sessions/"))
             {
                 HandleSessionRequest(context, path);
+            }
+            else if (path == "/data/files")
+            {
+                HandleDataFilesRequest(context);
+            }
+            else if (path == "/data/file")
+            {
+                HandleDataFileRequest(context);
             }
             else
             {
@@ -147,6 +159,188 @@ public class WebSocketServer : IDisposable
         {
             response.StatusCode = 405;
         }
+    }
+
+    private void HandleDataFilesRequest(HttpListenerContext context)
+    {
+        var response = context.Response;
+
+        if (context.Request.HttpMethod != "GET")
+        {
+            response.StatusCode = 405;
+            return;
+        }
+
+        if (!Directory.Exists(_dataRoot))
+        {
+            RespondJson(response, 200, new { root = _dataRoot, files = Array.Empty<object>() });
+            return;
+        }
+
+        var files = Directory.EnumerateFiles(_dataRoot, "*.json", SearchOption.AllDirectories)
+            .Select(path => new FileInfo(path))
+            .Select(info =>
+            {
+                var relative = Path.GetRelativePath(_dataRoot, info.FullName).Replace('\\', '/');
+                return new
+                {
+                    path = relative,
+                    size = info.Length,
+                    modifiedUtc = info.LastWriteTimeUtc,
+                    etag = ComputeEtag(File.ReadAllText(info.FullName))
+                };
+            })
+            .ToList();
+
+        RespondJson(response, 200, new { root = _dataRoot, files });
+    }
+
+    private void HandleDataFileRequest(HttpListenerContext context)
+    {
+        var response = context.Response;
+        var query = ParseQuery(context.Request.Url?.Query ?? "");
+        query.TryGetValue("path", out var relativePath);
+        var fullPath = ResolveDataPath(relativePath);
+
+        if (fullPath == null)
+        {
+            RespondJson(response, 400, new { error = "Invalid path." });
+            return;
+        }
+
+        if (context.Request.HttpMethod == "GET")
+        {
+            if (!File.Exists(fullPath))
+            {
+                RespondJson(response, 404, new { error = "File not found." });
+                return;
+            }
+
+            var content = File.ReadAllText(fullPath);
+            RespondJson(response, 200, new
+            {
+                path = relativePath,
+                content,
+                etag = ComputeEtag(content),
+                modifiedUtc = File.GetLastWriteTimeUtc(fullPath)
+            });
+            return;
+        }
+
+        if (context.Request.HttpMethod == "PUT")
+        {
+            using var reader = new StreamReader(context.Request.InputStream, context.Request.ContentEncoding ?? Encoding.UTF8);
+            var body = reader.ReadToEnd();
+            if (string.IsNullOrWhiteSpace(body))
+            {
+                RespondJson(response, 400, new { error = "Empty request body." });
+                return;
+            }
+
+            using var doc = JsonDocument.Parse(body);
+            if (!doc.RootElement.TryGetProperty("content", out var contentElement))
+            {
+                RespondJson(response, 400, new { error = "Missing content." });
+                return;
+            }
+
+            var content = contentElement.GetString() ?? "";
+            string? expectedEtag = null;
+            if (doc.RootElement.TryGetProperty("etag", out var etagElement))
+            {
+                expectedEtag = etagElement.GetString();
+            }
+
+            try
+            {
+                JsonDocument.Parse(content);
+            }
+            catch (JsonException ex)
+            {
+                RespondJson(response, 400, new { error = $"Invalid JSON content: {ex.Message}" });
+                return;
+            }
+
+            if (File.Exists(fullPath) && expectedEtag != null)
+            {
+                var currentContent = File.ReadAllText(fullPath);
+                var currentEtag = ComputeEtag(currentContent);
+                if (!string.Equals(currentEtag, expectedEtag, StringComparison.Ordinal))
+                {
+                    RespondJson(response, 409, new { error = "Conflict detected.", etag = currentEtag });
+                    return;
+                }
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+            File.WriteAllText(fullPath, content);
+            RespondJson(response, 200, new { path = relativePath, etag = ComputeEtag(content) });
+            return;
+        }
+
+        if (context.Request.HttpMethod == "DELETE")
+        {
+            if (!File.Exists(fullPath))
+            {
+                RespondJson(response, 404, new { error = "File not found." });
+                return;
+            }
+
+            File.Delete(fullPath);
+            RespondJson(response, 200, new { path = relativePath });
+            return;
+        }
+
+        response.StatusCode = 405;
+    }
+
+    private static Dictionary<string, string> ParseQuery(string query)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return result;
+        }
+
+        var trimmed = query.StartsWith("?") ? query[1..] : query;
+        var pairs = trimmed.Split('&', StringSplitOptions.RemoveEmptyEntries);
+        foreach (var pair in pairs)
+        {
+            var parts = pair.Split('=', 2);
+            var key = Uri.UnescapeDataString(parts[0]);
+            var value = parts.Length > 1 ? Uri.UnescapeDataString(parts[1]) : "";
+            result[key] = value;
+        }
+
+        return result;
+    }
+
+    private string? ResolveDataPath(string? relativePath)
+    {
+        if (string.IsNullOrWhiteSpace(relativePath))
+        {
+            return null;
+        }
+
+        var fullPath = Path.GetFullPath(Path.Combine(_dataRoot, relativePath));
+        if (!fullPath.StartsWith(_dataRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        if (!string.Equals(Path.GetExtension(fullPath), ".json", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return fullPath;
+    }
+
+    private static string ComputeEtag(string content)
+    {
+        var bytes = Encoding.UTF8.GetBytes(content);
+        var hash = SHA256.HashData(bytes);
+        return Convert.ToHexString(hash);
     }
 
     private void HandleSessionRequest(HttpListenerContext context, string path)
