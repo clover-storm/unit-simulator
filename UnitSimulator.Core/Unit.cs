@@ -36,6 +36,9 @@ public class Unit
     private readonly List<Vector2> _avoidancePath = new();
     private int _avoidancePathIndex = 0;
 
+    private readonly List<Vector2> _movementPath = new();
+    private int _movementPathIndex = 0;
+
     public Unit(Vector2 position, float radius, float speed, float turnSpeed, UnitRole role, int hp, int id, UnitFaction faction)
     {
         Position = position;
@@ -96,7 +99,7 @@ public class Unit
 
         if (bestIndex != -1)
         {
-            if (attacker.TakenSlotIndex != -1 && attacker.TakenSlotIndex != bestIndex && 
+            if (attacker.TakenSlotIndex != -1 && attacker.TakenSlotIndex != bestIndex &&
                 attacker.TakenSlotIndex < AttackSlots.Length && AttackSlots[attacker.TakenSlotIndex] == attacker)
             {
                 AttackSlots[attacker.TakenSlotIndex] = null;
@@ -157,6 +160,43 @@ public class Unit
     {
         _avoidancePath.Clear();
         _avoidancePathIndex = 0;
+    }
+
+    public void SetMovementPath(List<Vector2>? path)
+    {
+        _movementPath.Clear();
+        if (path != null && path.Count > 0)
+        {
+            _movementPath.AddRange(path);
+        }
+        _movementPathIndex = 0;
+    }
+
+    public bool TryGetNextMovementWaypoint(out Vector2 waypoint)
+    {
+        if (_movementPathIndex < _movementPath.Count)
+        {
+            var target = _movementPath[_movementPathIndex];
+            if (Vector2.Distance(Position, target) <= GameConstants.AVOIDANCE_WAYPOINT_THRESHOLD)
+            {
+                _movementPathIndex++;
+                if (_movementPathIndex >= _movementPath.Count)
+                {
+                    waypoint = Vector2.Zero;
+                    return false; // Path complete
+                }
+            }
+            waypoint = _movementPath[_movementPathIndex];
+            return true;
+        }
+        waypoint = Vector2.Zero;
+        return false;
+    }
+
+    public void ClearMovementPath()
+    {
+        _movementPath.Clear();
+        _movementPathIndex = 0;
     }
 
     public void UpdateRotation()

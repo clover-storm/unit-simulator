@@ -1,4 +1,5 @@
 using System.Numerics;
+using UnitSimulator.Core.Pathfinding;
 
 namespace UnitSimulator;
 
@@ -40,6 +41,10 @@ public class SimulatorCore
     private bool _isInitialized = false;
     private bool _isRunning = false;
 
+    // Pathfinding System
+    private PathfindingGrid? _pathfindingGrid;
+    private AStarPathfinder? _pathfinder;
+
     /// <summary>
     /// Command queue for external control of the simulation.
     /// Commands are processed at the start of each frame.
@@ -66,6 +71,8 @@ public class SimulatorCore
     public IReadOnlyList<Unit> FriendlyUnits => _friendlySquad.AsReadOnly();
     public IReadOnlyList<Unit> EnemyUnits => _enemySquad.AsReadOnly();
     public Vector2 MainTarget => _mainTarget;
+    public PathfindingGrid? PathfindingGrid => _pathfindingGrid;
+    public AStarPathfinder? Pathfinder => _pathfinder;
 
     /// <summary>
     /// Gets or sets the current wave number.
@@ -208,6 +215,10 @@ public class SimulatorCore
         // Initialize empty enemy squad (will be populated via commands)
         _enemySquad = new List<Unit>();
 
+        // Initialize Pathfinding
+        _pathfindingGrid = new PathfindingGrid(GameConstants.SIMULATION_WIDTH, GameConstants.SIMULATION_HEIGHT, GameConstants.UNIT_RADIUS);
+        _pathfinder = new AStarPathfinder(_pathfindingGrid);
+
         _isInitialized = true;
         _currentFrame = 0;
         _currentWave = 0;
@@ -302,10 +313,10 @@ public class SimulatorCore
         ProcessCommands(callbacks);
 
         // Update enemy behavior
-        _enemyBehavior.UpdateEnemySquad(_enemySquad, _friendlySquad);
+        _enemyBehavior.UpdateEnemySquad(this, _enemySquad, _friendlySquad);
 
         // Update friendly behavior
-        _squadBehavior.UpdateFriendlySquad(_friendlySquad, _enemySquad, _mainTarget);
+        _squadBehavior.UpdateFriendlySquad(this, _friendlySquad, _enemySquad, _mainTarget);
 
         // Generate frame data
         var frameData = FrameData.FromSimulationState(
@@ -524,6 +535,8 @@ public class SimulatorCore
         _friendlySquad.Clear();
         _enemySquad.Clear();
         _commandQueue.Clear();
+        _pathfindingGrid = null;
+        _pathfinder = null;
 
         Initialize();
     }

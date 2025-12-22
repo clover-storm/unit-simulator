@@ -1,4 +1,5 @@
 using System.Numerics;
+using UnitSimulator.Core.Tests.TestHelpers;
 using Xunit;
 
 namespace UnitSimulator.Core.Tests.Behaviors;
@@ -13,7 +14,9 @@ public class EnemyBehaviorTests
         var enemies = new List<Unit> { enemy };
         var friendlies = new List<Unit>();
 
-        behavior.UpdateEnemySquad(enemies, friendlies);
+        var simulator = SimulationTestFactory.CreateInitializedCore(hasMoreWaves: false);
+
+        behavior.UpdateEnemySquad(simulator, enemies, friendlies);
 
         Assert.Equal(new Vector2(100, 100), enemy.Position);
         Assert.Null(enemy.Target);

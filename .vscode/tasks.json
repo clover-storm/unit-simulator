@@ -1,0 +1,28 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "dotnet: restore",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["restore", "UnitSimulator.sln"],
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "dotnet: build",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["build", "UnitSimulator.sln"],
+      "problemMatcher": "$msCompile",
+      "dependsOn": "dotnet: restore"
+    },
+    {
+      "label": "dotnet: test",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["test", "UnitSimulator.sln"],
+      "problemMatcher": "$msCompile",
+      "dependsOn": "dotnet: build"
+    }
+  ]
+}

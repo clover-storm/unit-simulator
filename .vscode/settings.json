@@ -1,0 +1,5 @@
+{
+  "dotnet.defaultSolution": "UnitSimulator.sln",
+  "dotnet-test-explorer.testProjectPath": "UnitSimulator.Core.Tests/UnitSimulator.Core.Tests.csproj",
+  "dotnet-test-explorer.useDotNetTest": true
+}

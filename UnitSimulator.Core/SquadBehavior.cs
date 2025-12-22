@@ -13,7 +13,7 @@ public class SquadBehavior
         new(0, 0), new(0, 90), new(-80, -45), new(-80, 135)
     };
 
-    public void UpdateFriendlySquad(List<Unit> friendlies, List<Unit> enemies, Vector2 mainTarget)
+    public void UpdateFriendlySquad(SimulatorCore sim, List<Unit> friendlies, List<Unit> enemies, Vector2 mainTarget)
     {
         var livingEnemies = enemies.Where(e => !e.IsDead).ToList();
 
@@ -24,18 +24,18 @@ public class SquadBehavior
 
             if (engagedUnits.Count > 0)
             {
-                UpdateCombatBehavior(friendlies, livingEnemies, engagedUnits);
+                UpdateCombatBehavior(sim, friendlies, livingEnemies, engagedUnits);
             }
 
             if (engagedUnits.Count < friendlies.Count)
             {
-                UpdateFormation(friendlies, engagedUnits);
+                UpdateFormation(sim, friendlies, engagedUnits);
             }
         }
         else
         {
             ResetSquadState(friendlies);
-            MoveToMainTarget(friendlies, mainTarget);
+            MoveToMainTarget(sim, friendlies, mainTarget);
         }
     }
 
@@ -62,7 +62,7 @@ public class SquadBehavior
     }
 
 
-    private void UpdateFormation(List<Unit> friendlies, HashSet<Unit>? engagedUnits = null)
+    private void UpdateFormation(SimulatorCore sim, List<Unit> friendlies, HashSet<Unit>? engagedUnits = null)
     {
         var leader = friendlies.FirstOrDefault();
         if (leader == null) return;
@@ -72,15 +72,7 @@ public class SquadBehavior
 
         if (!leaderEngaged)
         {
-            leader.HasAvoidanceTarget = false;
-            leader.AvoidanceTarget = Vector2.Zero;
-            leader.AvoidanceThreat = null;
-            leader.CurrentDestination = leaderTargetPosition;
-
-            Vector2 toMain = leaderTargetPosition - leader.Position;
-            leader.Velocity = toMain.Length() < 5f ? Vector2.Zero : MathUtils.SafeNormalize(toMain) * leader.Speed;
-            leader.Position += leader.Velocity;
-            leader.UpdateRotation();
+            MoveUnit(sim, leader, leaderTargetPosition, friendlies, null);
         }
 
         for (int i = 1; i < friendlies.Count; i++)
@@ -92,18 +84,7 @@ public class SquadBehavior
             var rotatedOffset = Vector2.Transform(_formationOffsets[i], rotation);
             var formationTarget = leader.Position + rotatedOffset;
 
-            Vector2 toFormation = formationTarget - follower.Position;
-            float distanceToSlot = toFormation.Length();
-
-            follower.HasAvoidanceTarget = false;
-            follower.AvoidanceTarget = Vector2.Zero;
-            follower.AvoidanceThreat = null;
-            follower.ClearAvoidancePath();
-            follower.CurrentDestination = formationTarget;
-
-            follower.Velocity = distanceToSlot < 3f ? Vector2.Zero : MathUtils.SafeNormalize(toFormation) * follower.Speed;
-            follower.Position += follower.Velocity;
-            follower.UpdateRotation();
+            MoveUnit(sim, follower, formationTarget, friendlies, null);
         }
     }
 
@@ -136,14 +117,14 @@ public class SquadBehavior
         return false;
     }
 
-    private void UpdateCombatBehavior(List<Unit> friendlies, List<Unit> livingEnemies, HashSet<Unit>? engagedUnits = null)
+    private void UpdateCombatBehavior(SimulatorCore sim, List<Unit> friendlies, List<Unit> livingEnemies, HashSet<Unit>? engagedUnits = null)
     {
         foreach (var friendly in friendlies)
         {
             if (engagedUnits != null && !engagedUnits.Contains(friendly)) continue;
 
             UpdateUnitTarget(friendly, livingEnemies);
-            UpdateCombat(friendly, livingEnemies, friendlies);
+            UpdateCombat(sim, friendly, livingEnemies, friendlies);
             friendly.Position += friendly.Velocity;
             friendly.UpdateRotation();
         }
@@ -160,23 +141,21 @@ public class SquadBehavior
         friendly.AttackCooldown = Math.Max(0, friendly.AttackCooldown - 1);
         var previousTarget = friendly.Target;
         friendly.Target = livingEnemies.OrderBy(e => Vector2.Distance(friendly.Position, e.Position)).FirstOrDefault();
-        
-        if (previousTarget != null && previousTarget != friendly.Target) 
+
+        if (previousTarget != null && previousTarget != friendly.Target)
             previousTarget.ReleaseSlot(friendly);
-        
-        if (friendly.Target != null) 
+
+        if (friendly.Target != null)
             friendly.Target.ClaimBestSlot(friendly);
     }
 
-    private void UpdateCombat(Unit friendly, List<Unit> livingEnemies, List<Unit> friendlies)
+    private void UpdateCombat(SimulatorCore sim, Unit friendly, List<Unit> livingEnemies, List<Unit> friendlies)
     {
         if (friendly.Target == null)
         {
+            friendly.ClearMovementPath();
             friendly.CurrentDestination = friendly.Position;
-            friendly.HasAvoidanceTarget = false;
-            friendly.AvoidanceTarget = Vector2.Zero;
-            friendly.AvoidanceThreat = null;
-            friendly.ClearAvoidancePath();
+            friendly.Velocity = Vector2.Zero;
             return;
         }
 
@@ -185,17 +164,13 @@ public class SquadBehavior
             ? friendly.Target.GetSlotPosition(slotIndex, friendly.Radius)
             : friendly.Target.Position;
 
-        float distanceToAttack = Vector2.Distance(friendly.Position, attackPosition);
         float distanceToTargetCenter = Vector2.Distance(friendly.Position, friendly.Target.Position);
-        bool inAttackRange = distanceToAttack <= friendly.AttackRange || distanceToTargetCenter <= friendly.AttackRange;
-        friendly.CurrentDestination = attackPosition;
-        
+        bool inAttackRange = distanceToTargetCenter <= friendly.AttackRange;
+
         if (inAttackRange)
         {
             friendly.Velocity = Vector2.Zero;
-            friendly.HasAvoidanceTarget = false;
-            friendly.AvoidanceTarget = Vector2.Zero;
-            friendly.AvoidanceThreat = null;
+            friendly.ClearMovementPath();
             friendly.ClearAvoidancePath();
             friendly.CurrentDestination = friendly.Position;
             if (friendly.AttackCooldown <= 0)
@@ -207,30 +182,56 @@ public class SquadBehavior
         }
         else
         {
-            Vector2 desiredDirection = attackPosition - friendly.Position;
-            Vector2 desiredForward = MathUtils.SafeNormalize(desiredDirection);
-            Vector2 separationVector = MathUtils.CalculateSeparationVector(friendly, friendlies, GameConstants.FRIENDLY_SEPARATION_RADIUS);
-            var avoidanceCandidates = livingEnemies.Cast<Unit>().Concat(friendlies.Where(u => u != friendly)).ToList();
-            Vector2 avoidance = AvoidanceSystem.PredictiveAvoidanceVector(friendly, avoidanceCandidates, desiredForward, out var avoidTarget, out var isDetouring, out var avoidanceThreat);
+            MoveUnit(sim, friendly, attackPosition, friendlies, livingEnemies);
+        }
+    }
 
-            bool hasWaypoint = friendly.TryGetNextAvoidanceWaypoint(out var waypoint);
-            Vector2 steeringTarget = hasWaypoint ? waypoint : attackPosition;
+    private void MoveUnit(SimulatorCore sim, Unit unit, Vector2 destination, List<Unit> friendlies, List<Unit>? enemies)
+    {
+        bool needsNewPath = Vector2.Distance(unit.CurrentDestination, destination) > GameConstants.DESTINATION_THRESHOLD;
+        if (needsNewPath)
+        {
+            var path = sim.Pathfinder?.FindPath(unit.Position, destination);
+            unit.SetMovementPath(path);
+            unit.CurrentDestination = destination;
+        }
+
+        if (unit.TryGetNextMovementWaypoint(out var waypoint))
+        {
+            Vector2 desiredDirection = waypoint - unit.Position;
+            Vector2 desiredForward = MathUtils.SafeNormalize(desiredDirection);
+            Vector2 separationVector = MathUtils.CalculateSeparationVector(unit, friendlies, GameConstants.FRIENDLY_SEPARATION_RADIUS);
+            
+            var avoidanceCandidates = enemies != null 
+                ? enemies.Cast<Unit>().Concat(friendlies.Where(u => u != unit)).ToList()
+                : friendlies.Where(u => u != unit).ToList();
+
+            Vector2 avoidance = AvoidanceSystem.PredictiveAvoidanceVector(unit, avoidanceCandidates, desiredForward, out var avoidTarget, out var isDetouring, out var avoidanceThreat);
+
+            bool hasWaypoint = unit.TryGetNextAvoidanceWaypoint(out var avoidanceWaypoint);
+            Vector2 steeringTarget = hasWaypoint ? avoidanceWaypoint : waypoint;
             bool hasDetour = hasWaypoint || isDetouring;
 
             if (!hasDetour)
             {
-                friendly.ClearAvoidancePath();
+                unit.ClearAvoidancePath();
             }
 
-            friendly.HasAvoidanceTarget = hasDetour;
-            friendly.AvoidanceTarget = hasWaypoint ? steeringTarget : (isDetouring ? avoidTarget : Vector2.Zero);
-            friendly.AvoidanceThreat = hasDetour ? avoidanceThreat : null;
-            friendly.CurrentDestination = steeringTarget;
+            unit.HasAvoidanceTarget = hasDetour;
+            unit.AvoidanceTarget = hasWaypoint ? steeringTarget : (isDetouring ? avoidTarget : Vector2.Zero);
+            unit.AvoidanceThreat = hasDetour ? avoidanceThreat : null;
 
-            Vector2 steeringDir = MathUtils.SafeNormalize(steeringTarget - friendly.Position);
+            Vector2 steeringDir = MathUtils.SafeNormalize(steeringTarget - unit.Position);
             Vector2 finalDir = MathUtils.SafeNormalize(steeringDir + separationVector + avoidance);
-            friendly.Velocity = finalDir * friendly.Speed;
+            unit.Velocity = finalDir * unit.Speed;
         }
+        else
+        {
+            unit.Velocity = Vector2.Zero;
+        }
+        
+        unit.Position += unit.Velocity;
+        unit.UpdateRotation();
     }
 
     private void ResetSquadState(List<Unit> friendlies)
@@ -242,28 +243,18 @@ public class SquadBehavior
             if (f.Target != null) f.Target.ReleaseSlot(f);
             f.TakenSlotIndex = -1;
             f.Target = null;
-            f.HasAvoidanceTarget = false;
-            f.AvoidanceTarget = Vector2.Zero;
-            f.AvoidanceThreat = null;
+            f.ClearMovementPath();
             f.ClearAvoidancePath();
             f.CurrentDestination = f.Position;
         }
     }
 
-    private void MoveToMainTarget(List<Unit> friendlies, Vector2 mainTarget)
+    private void MoveToMainTarget(SimulatorCore sim, List<Unit> friendlies, Vector2 mainTarget)
     {
         var leader = friendlies.FirstOrDefault();
         if (leader == null) return;
 
-        Vector2 toMain = mainTarget - leader.Position;
-        leader.HasAvoidanceTarget = false;
-        leader.AvoidanceTarget = Vector2.Zero;
-        leader.AvoidanceThreat = null;
-        leader.ClearAvoidancePath();
-        leader.CurrentDestination = toMain.Length() < 5f ? leader.Position : mainTarget;
-        leader.Velocity = toMain.Length() < 5f ? Vector2.Zero : MathUtils.SafeNormalize(toMain) * leader.Speed;
-        leader.Position += leader.Velocity;
-        leader.UpdateRotation();
+        MoveUnit(sim, leader, mainTarget, friendlies, null);
 
         for (int i = 1; i < friendlies.Count; i++)
         {
@@ -272,17 +263,7 @@ public class SquadBehavior
             var rotatedOffset = Vector2.Transform(_formationOffsets[i], rotation);
             var formationTarget = leader.Position + rotatedOffset;
 
-            Vector2 toFormation = formationTarget - follower.Position;
-            float distanceToSlot = toFormation.Length();
-
-            follower.HasAvoidanceTarget = false;
-            follower.AvoidanceTarget = Vector2.Zero;
-            follower.AvoidanceThreat = null;
-            follower.CurrentDestination = formationTarget;
-
-            follower.Velocity = distanceToSlot < 3f ? Vector2.Zero : MathUtils.SafeNormalize(toFormation) * follower.Speed;
-            follower.Position += follower.Velocity;
-            follower.UpdateRotation();
+            MoveUnit(sim, follower, formationTarget, friendlies, null);
         }
     }
 }

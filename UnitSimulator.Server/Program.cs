@@ -240,6 +240,8 @@ public class Program
         var waveManager = new WaveManager();
         var squadBehavior = new SquadBehavior();
         var enemyBehavior = new EnemyBehavior();
+        var pathfindingSim = new SimulatorCore();
+        pathfindingSim.Initialize();
 
         // Spawn first wave
         SpawnWaveUnits(enemySquad, waveManager.SpawnFirstWave(0));
@@ -257,8 +259,8 @@ public class Program
                 }
             }
 
-            enemyBehavior.UpdateEnemySquad(enemySquad, friendlySquad);
-            squadBehavior.UpdateFriendlySquad(friendlySquad, enemySquad, mainTarget);
+            enemyBehavior.UpdateEnemySquad(pathfindingSim, enemySquad, friendlySquad);
+            squadBehavior.UpdateFriendlySquad(pathfindingSim, friendlySquad, enemySquad, mainTarget);
 
             if (renderer != null)
             {

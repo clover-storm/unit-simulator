@@ -33,6 +33,7 @@ public static class GameConstants
     public const float FORMATION_THRESHOLD = 20f;
     public const float SEPARATION_RADIUS = 120f;
     public const float FRIENDLY_SEPARATION_RADIUS = 80f;
+    public const float DESTINATION_THRESHOLD = 10f;
 
     // Wave settings
     public const int MAX_WAVES = 3;

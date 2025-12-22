@@ -5,10 +5,18 @@ namespace UnitSimulator;
 
 public class EnemyBehavior
 {
-    public void UpdateEnemySquad(List<Unit> enemies, List<Unit> friendlies)
+    public void UpdateEnemySquad(SimulatorCore sim, List<Unit> enemies, List<Unit> friendlies)
     {
         var livingFriendlies = friendlies.Where(f => !f.IsDead).ToList();
-        if (!livingFriendlies.Any()) return;
+        if (!livingFriendlies.Any())
+        {
+            foreach (var enemy in enemies)
+            {
+                enemy.Velocity = Vector2.Zero;
+                enemy.ClearMovementPath();
+            }
+            return;
+        }
 
         foreach (var enemy in enemies)
         {
@@ -25,8 +33,8 @@ public class EnemyBehavior
             }
 
             UpdateEnemyTarget(enemy, livingFriendlies);
-            UpdateEnemyMovement(enemy, enemies, livingFriendlies);
-            
+            UpdateEnemyMovement(sim, enemy, enemies, livingFriendlies);
+
             enemy.Position += enemy.Velocity;
             enemy.UpdateRotation();
         }
@@ -76,16 +84,13 @@ public class EnemyBehavior
         }
     }
 
-    private void UpdateEnemyMovement(Unit enemy, List<Unit> enemies, List<Unit> livingFriendlies)
+    private void UpdateEnemyMovement(SimulatorCore sim, Unit enemy, List<Unit> enemies, List<Unit> livingFriendlies)
     {
         if (enemy.Target == null)
         {
+            enemy.ClearMovementPath();
             enemy.CurrentDestination = enemy.Position;
-            enemy.HasAvoidanceTarget = false;
-            enemy.AvoidanceTarget = Vector2.Zero;
-            enemy.AvoidanceThreat = null;
-            enemy.ClearAvoidancePath();
-            enemy.FramesSinceSlotEvaluation = 0;
+            enemy.Velocity = Vector2.Zero;
             return;
         }
 
@@ -114,16 +119,6 @@ public class EnemyBehavior
         if (slotIndex != -1)
         {
             targetPosition = target.GetSlotPosition(slotIndex, enemy.Radius);
-            if (Vector2.Distance(enemy.Position, targetPosition) < enemy.Radius)
-            {
-                enemy.Velocity = Vector2.Zero;
-                enemy.CurrentDestination = enemy.Position;
-                enemy.HasAvoidanceTarget = false;
-                enemy.AvoidanceTarget = Vector2.Zero;
-                enemy.AvoidanceThreat = null;
-                enemy.ClearAvoidancePath();
-                return;
-            }
         }
         else
         {
@@ -132,31 +127,59 @@ public class EnemyBehavior
             targetPosition = target.Position + MathUtils.SafeNormalize(perpendicular) * 200f;
         }
 
-        Vector2 desiredDirection = targetPosition - enemy.Position;
-        Vector2 desiredForward = MathUtils.SafeNormalize(desiredDirection);
-        Vector2 separationVector = MathUtils.CalculateSeparationVector(enemy, enemies, GameConstants.SEPARATION_RADIUS);
-        var avoidanceCandidates = livingFriendlies.Cast<Unit>().Concat(enemies.Where(e => e != enemy && !e.IsDead)).ToList();
-        Vector2 friendlyAvoidance = AvoidanceSystem.PredictiveAvoidanceVector(enemy, avoidanceCandidates, desiredForward, out var avoidTarget, out var isDetouring, out var avoidanceThreat);
-
-        bool hasWaypoint = enemy.TryGetNextAvoidanceWaypoint(out var waypoint);
-        Vector2 steeringTarget = hasWaypoint ? waypoint : targetPosition;
-        bool hasDetour = hasWaypoint || isDetouring;
-
-        if (!hasDetour)
+        float distanceToTargetCenter = Vector2.Distance(enemy.Position, target.Position);
+        if (distanceToTargetCenter <= enemy.AttackRange)
         {
-            enemy.ClearAvoidancePath();
+            enemy.Velocity = Vector2.Zero;
+            enemy.ClearMovementPath();
+            TryAttack(enemy, target);
+        }
+        else
+        {
+            MoveUnit(sim, enemy, targetPosition, enemies, livingFriendlies);
+        }
+    }
+    
+    private void MoveUnit(SimulatorCore sim, Unit unit, Vector2 destination, List<Unit> enemies, List<Unit> friendlies)
+    {
+        bool needsNewPath = Vector2.Distance(unit.CurrentDestination, destination) > GameConstants.DESTINATION_THRESHOLD;
+        if (needsNewPath)
+        {
+            var path = sim.Pathfinder?.FindPath(unit.Position, destination);
+            unit.SetMovementPath(path);
+            unit.CurrentDestination = destination;
         }
 
-        enemy.HasAvoidanceTarget = hasDetour;
-        enemy.AvoidanceTarget = hasWaypoint ? steeringTarget : (isDetouring ? avoidTarget : Vector2.Zero);
-        enemy.AvoidanceThreat = hasDetour ? avoidanceThreat : null;
-        enemy.CurrentDestination = steeringTarget;
+        if (unit.TryGetNextMovementWaypoint(out var waypoint))
+        {
+            Vector2 desiredDirection = waypoint - unit.Position;
+            Vector2 desiredForward = MathUtils.SafeNormalize(desiredDirection);
+            Vector2 separationVector = MathUtils.CalculateSeparationVector(unit, enemies, GameConstants.SEPARATION_RADIUS);
+            
+            var avoidanceCandidates = friendlies.Cast<Unit>().Concat(enemies.Where(e => e != unit && !e.IsDead)).ToList();
+            Vector2 avoidance = AvoidanceSystem.PredictiveAvoidanceVector(unit, avoidanceCandidates, desiredForward, out var avoidTarget, out var isDetouring, out var avoidanceThreat);
 
-        Vector2 steeringDir = MathUtils.SafeNormalize(steeringTarget - enemy.Position);
-        Vector2 finalDir = MathUtils.SafeNormalize(steeringDir + separationVector + friendlyAvoidance);
-        enemy.Velocity = finalDir * enemy.Speed;
+            bool hasWaypoint = unit.TryGetNextAvoidanceWaypoint(out var avoidanceWaypoint);
+            Vector2 steeringTarget = hasWaypoint ? avoidanceWaypoint : waypoint;
+            bool hasDetour = hasWaypoint || isDetouring;
 
-        TryAttack(enemy, target);
+            if (!hasDetour)
+            {
+                unit.ClearAvoidancePath();
+            }
+
+            unit.HasAvoidanceTarget = hasDetour;
+            unit.AvoidanceTarget = hasWaypoint ? steeringTarget : (isDetouring ? avoidTarget : Vector2.Zero);
+            unit.AvoidanceThreat = hasDetour ? avoidanceThreat : null;
+
+            Vector2 steeringDir = MathUtils.SafeNormalize(steeringTarget - unit.Position);
+            Vector2 finalDir = MathUtils.SafeNormalize(steeringDir + separationVector + avoidance);
+            unit.Velocity = finalDir * unit.Speed;
+        }
+        else
+        {
+            unit.Velocity = Vector2.Zero;
+        }
     }
 
     private void TryAttack(Unit attacker, Unit target)

@@ -1,4 +1,5 @@
 using System.Numerics;
+using UnitSimulator.Core.Tests.TestHelpers;
 using Xunit;
 
 namespace UnitSimulator.Core.Tests.Behaviors;
@@ -14,7 +15,9 @@ public class SquadBehaviorTests
         var friendlies = new List<Unit> { leader, follower };
         var enemies = new List<Unit>();
 
-        behavior.UpdateFriendlySquad(friendlies, enemies, new Vector2(300, 300));
+        var simulator = SimulationTestFactory.CreateInitializedCore(hasMoreWaves: false);
+
+        behavior.UpdateFriendlySquad(simulator, friendlies, enemies, new Vector2(300, 300));
 
         Assert.Equal(new Vector2(300, 300), leader.CurrentDestination);
     }
