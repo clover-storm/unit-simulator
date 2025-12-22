@@ -397,16 +397,16 @@ namespace UnitSimulator.Server;
 **출력**: 분리된 두 개의 프로젝트 (Core, Server)
 
 **완료 조건**:
-- [ ] UnitSimulator.sln, UnitSimulator.Core, UnitSimulator.Server 프로젝트 생성
-- [ ] WaveManager.cs에서 Renderer 클래스를 별도 파일로 분리 (Server/Renderer.cs)
-- [ ] WaveManager를 Server로 이동, 명령 생성만 담당하도록 변경
-- [ ] Constants.cs를 GameConstants(Core)와 ServerConstants(Server)로 분리
-- [ ] FrameData.FromSimulationState()에서 WaveManager 파라미터 제거 (값 전달로 변경)
-- [ ] SimulatorCore에서 Renderer, WaveManager 직접 참조 제거
-- [ ] Command Queue 구조 구현 (ISimulationCommand, SpawnUnitCommand 등)
-- [ ] UnitSimulator.Core는 System.* 및 System.Text.Json 외 외부 의존성 없음
-- [ ] UnitSimulator.Server는 Core를 참조하고 ImageSharp 패키지 포함
-- [ ] 기존 기능 동작 확인 (dotnet build, 시뮬레이션 실행)
+- [x] UnitSimulator.sln, UnitSimulator.Core, UnitSimulator.Server 프로젝트 생성
+- [x] WaveManager.cs에서 Renderer 클래스를 별도 파일로 분리 (Server/Renderer.cs)
+- [x] WaveManager를 Server로 이동, 명령 생성만 담당하도록 변경
+- [x] Constants.cs를 GameConstants(Core)와 ServerConstants(Server)로 분리
+- [x] FrameData.FromSimulationState()에서 WaveManager 파라미터 제거 (값 전달로 변경)
+- [x] SimulatorCore에서 Renderer, WaveManager 직접 참조 제거
+- [x] Command Queue 구조 구현 (ISimulationCommand, SpawnUnitCommand 등)
+- [x] UnitSimulator.Core는 System.* 및 System.Text.Json 외 외부 의존성 없음
+- [x] UnitSimulator.Server는 Core를 참조하고 ImageSharp 패키지 포함
+- [x] 기존 기능 동작 확인 (dotnet build, 시뮬레이션 실행)
 
 ---
 
