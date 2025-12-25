@@ -12,6 +12,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "ag-grid-community": "^35.0.0",
+    "ag-grid-react": "^35.0.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },

@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import SpreadsheetView from './SpreadsheetView';
+import Resizer from './Resizer';
 
 type DataFile = {
   path: string;
@@ -30,16 +32,6 @@ function formatBytes(bytes: number) {
   return `${(kb / 1024).toFixed(1)} MB`;
 }
 
-function recordLabel(record: unknown, index: number) {
-  if (record && typeof record === 'object') {
-    const candidate = record as Record<string, unknown>;
-    const labelKey = ['id', 'name', 'key', 'role', 'type'].find(k => typeof candidate[k] === 'string' || typeof candidate[k] === 'number');
-    if (labelKey) {
-      return `${index} · ${candidate[labelKey]}`;
-    }
-  }
-  return `${index}`;
-}
 
 export default function DataEditor({ apiBaseUrl }: Props) {
   const [files, setFiles] = useState<DataFile[]>([]);
@@ -50,7 +42,7 @@ export default function DataEditor({ apiBaseUrl }: Props) {
   const [modifiedUtc, setModifiedUtc] = useState<string | null>(null);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [recordDraft, setRecordDraft] = useState('');
-  const [viewMode, setViewMode] = useState<'table' | 'raw'>('table');
+  const [viewMode, setViewMode] = useState<'table' | 'spreadsheet' | 'raw'>('spreadsheet');
   const [filterText, setFilterText] = useState('');
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
@@ -61,6 +53,9 @@ export default function DataEditor({ apiBaseUrl }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [activeArrayPath, setActiveArrayPath] = useState<string>('__root__');
+  const [renamingPath, setRenamingPath] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [spreadsheetHeight, setSpreadsheetHeight] = useState(400);
 
   const isArray = useMemo(() => Array.isArray(documentValue), [documentValue]);
 
@@ -169,7 +164,7 @@ export default function DataEditor({ apiBaseUrl }: Props) {
         setSelectedIndex(null);
         setRecordDraft('');
       }
-      setViewMode(Array.isArray(parsed) ? 'table' : 'raw');
+      setViewMode(Array.isArray(parsed) ? 'spreadsheet' : 'raw');
       setFilterText('');
       setSortKey(null);
     } catch (err) {
@@ -196,7 +191,7 @@ export default function DataEditor({ apiBaseUrl }: Props) {
       const parsed = JSON.parse(recordDraft);
       const nextArray = [...activeArray];
       nextArray[selectedIndex] = parsed;
-      setDocumentValue(prev => {
+      setDocumentValue((prev: unknown) => {
         const updated = setPathValue(prev, activeArrayPathSegments, nextArray);
         setRawDraft(JSON.stringify(updated, null, 2));
         return updated;
@@ -212,7 +207,7 @@ export default function DataEditor({ apiBaseUrl }: Props) {
     if (!activeArray) return;
     const nextArray = [...activeArray, {}];
     const newIndex = nextArray.length - 1;
-    setDocumentValue(prev => {
+    setDocumentValue((prev: unknown) => {
       const updated = setPathValue(prev, activeArrayPathSegments, nextArray);
       setRawDraft(JSON.stringify(updated, null, 2));
       return updated;
@@ -227,7 +222,7 @@ export default function DataEditor({ apiBaseUrl }: Props) {
     const nextArray = [...activeArray];
     nextArray.splice(selectedIndex, 1);
     const nextIndex = nextArray.length ? Math.min(selectedIndex, nextArray.length - 1) : null;
-    setDocumentValue(prev => {
+    setDocumentValue((prev: unknown) => {
       const updated = setPathValue(prev, activeArrayPathSegments, nextArray);
       setRawDraft(JSON.stringify(updated, null, 2));
       return updated;
@@ -303,6 +298,55 @@ export default function DataEditor({ apiBaseUrl }: Props) {
     }
   }, [apiBaseUrl, loadFiles, selectedPath]);
 
+  const startRename = useCallback((path: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setRenamingPath(path);
+    setRenameValue(path);
+  }, []);
+
+  const cancelRename = useCallback(() => {
+    setRenamingPath(null);
+    setRenameValue('');
+  }, []);
+
+  const confirmRename = useCallback(async (oldPath: string) => {
+    if (!renameValue.trim() || renameValue === oldPath) {
+      cancelRename();
+      return;
+    }
+    setError(null);
+    try {
+      // 1. Load original file content
+      const loadRes = await fetch(`${apiBaseUrl}/data/file?path=${encodeURIComponent(oldPath)}`);
+      if (!loadRes.ok) throw new Error('Failed to load original file.');
+      const loadData = await loadRes.json() as FileResponse;
+
+      // 2. Create new file with new name
+      const createRes = await fetch(`${apiBaseUrl}/data/file?path=${encodeURIComponent(renameValue)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: loadData.content })
+      });
+      if (!createRes.ok) throw new Error('Failed to create renamed file.');
+
+      // 3. Delete old file
+      const deleteRes = await fetch(`${apiBaseUrl}/data/file?path=${encodeURIComponent(oldPath)}`, {
+        method: 'DELETE'
+      });
+      if (!deleteRes.ok) throw new Error('Failed to delete original file.');
+
+      // 4. Update state
+      if (selectedPath === oldPath) {
+        setSelectedPath(renameValue);
+      }
+      await loadFiles();
+      setStatus(`Renamed to ${renameValue}`);
+      cancelRename();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to rename file.');
+    }
+  }, [apiBaseUrl, cancelRename, loadFiles, renameValue, selectedPath]);
+
   useEffect(() => {
     loadFiles();
   }, [loadFiles]);
@@ -329,7 +373,9 @@ export default function DataEditor({ apiBaseUrl }: Props) {
     if (activeArray && activeArray.length > 0) {
       setSelectedIndex(0);
       setRecordDraft(JSON.stringify(activeArray[0], null, 2));
-      setViewMode('table');
+      if (viewMode !== 'table' && viewMode !== 'spreadsheet') {
+        setViewMode('spreadsheet');
+      }
     } else {
       setSelectedIndex(null);
       setRecordDraft('');
@@ -337,7 +383,7 @@ export default function DataEditor({ apiBaseUrl }: Props) {
         setViewMode('raw');
       }
     }
-  }, [activeArray, isArray]);
+  }, [activeArray, isArray, viewMode]);
 
   useEffect(() => {
     if (!activeArray || selectedIndex === null) return;
@@ -461,14 +507,62 @@ export default function DataEditor({ apiBaseUrl }: Props) {
         </div>
         <div className="data-editor-file-list">
           {files.map(file => (
-            <button
+            <div
               key={file.path}
               className={`data-file ${file.path === selectedPath ? 'active' : ''}`}
-              onClick={() => loadFile(file.path)}
             >
-              <div className="data-file-name">{file.path}</div>
-              <div className="data-file-meta">{formatBytes(file.size)}</div>
-            </button>
+              {renamingPath === file.path ? (
+                <div className="data-file-rename">
+                  <input
+                    type="text"
+                    value={renameValue}
+                    onChange={e => setRenameValue(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') confirmRename(file.path);
+                      if (e.key === 'Escape') cancelRename();
+                    }}
+                    autoFocus
+                    onClick={e => e.stopPropagation()}
+                  />
+                  <button
+                    className="btn-icon"
+                    onClick={(e) => { e.stopPropagation(); confirmRename(file.path); }}
+                    title="Confirm"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  </button>
+                  <button
+                    className="btn-icon"
+                    onClick={(e) => { e.stopPropagation(); cancelRename(); }}
+                    title="Cancel"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className="data-file-info" onClick={() => loadFile(file.path)}>
+                    <div className="data-file-name">{file.path}</div>
+                    <div className="data-file-meta">{formatBytes(file.size)}</div>
+                  </div>
+                  <button
+                    className="btn-icon btn-rename"
+                    onClick={(e) => startRename(file.path, e)}
+                    title="Rename file"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                    </svg>
+                  </button>
+                </>
+              )}
+            </div>
           ))}
         </div>
       </aside>
@@ -486,6 +580,13 @@ export default function DataEditor({ apiBaseUrl }: Props) {
           </div>
           <div className="data-editor-actions">
             <div className="data-editor-tabs">
+              <button
+                className={`tab-button ${viewMode === 'spreadsheet' ? 'active' : ''}`}
+                onClick={() => setViewMode('spreadsheet')}
+                disabled={!activeArray}
+              >
+                Spreadsheet
+              </button>
               <button
                 className={`tab-button ${viewMode === 'table' ? 'active' : ''}`}
                 onClick={() => setViewMode('table')}
@@ -516,6 +617,64 @@ export default function DataEditor({ apiBaseUrl }: Props) {
 
         {selectedPath && (
           <div className="data-editor-body">
+            {viewMode === 'spreadsheet' && activeArray && (
+              <div className="data-editor-spreadsheet">
+                <div className="data-editor-toolbar">
+                  {arrayCandidates.length > 1 && (
+                    <select
+                      className="data-editor-select"
+                      value={activeArrayPath}
+                      onChange={(e) => {
+                        setActiveArrayPath(e.target.value);
+                        setSelectedIndex(0);
+                        setRecordDraft('');
+                      }}
+                    >
+                      {arrayCandidates.map(candidate => {
+                        const value = candidate.path.length === 0 ? '__root__' : candidate.path.join('.');
+                        return (
+                          <option key={value} value={value}>
+                            {candidate.label}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  )}
+                  <div className="data-editor-toolbar-meta">
+                    {activeArray.length} records
+                  </div>
+                  <div className="data-editor-record-actions">
+                    <button className="btn-secondary" onClick={addRecord}>Add Row</button>
+                    <button className="btn-secondary" onClick={deleteRecord} disabled={selectedIndex === null}>Remove Row</button>
+                  </div>
+                </div>
+                <div className="spreadsheet-container" style={{ height: spreadsheetHeight }}>
+                  <SpreadsheetView
+                    data={activeArray}
+                    onDataChange={(newData) => {
+                      setDocumentValue((prev: unknown) => {
+                        const updated = setPathValue(prev, activeArrayPathSegments, newData);
+                        setRawDraft(JSON.stringify(updated, null, 2));
+                        return updated;
+                      });
+                      setStatus('Data updated.');
+                    }}
+                    onRowSelect={(index) => {
+                      setSelectedIndex(index);
+                      setRecordDraft(JSON.stringify(activeArray[index], null, 2));
+                    }}
+                    selectedIndex={selectedIndex}
+                  />
+                </div>
+                <Resizer
+                  direction="vertical"
+                  onResize={(delta) => {
+                    setSpreadsheetHeight(h => Math.max(150, Math.min(800, h + delta)));
+                  }}
+                />
+              </div>
+            )}
+
             {viewMode === 'table' && activeArray && (
               <div className="data-editor-table">
                 <div className="data-editor-toolbar">

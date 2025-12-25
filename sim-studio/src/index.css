@@ -90,27 +90,89 @@ body {
 
 .data-file {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: center;
   background-color: #1a1a2e;
   border: 1px solid #0f3460;
   padding: 0.5rem;
   border-radius: 6px;
   text-align: left;
   color: inherit;
-  cursor: pointer;
+  gap: 0.5rem;
 }
 
 .data-file.active {
   border-color: #e94560;
 }
 
+.data-file-info {
+  flex: 1;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.data-file-info:hover {
+  color: #e94560;
+}
+
 .data-file-name {
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .data-file-meta {
   font-size: 0.75rem;
   color: #9ca3af;
+}
+
+.data-file-rename {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex: 1;
+}
+
+.data-file-rename input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.85rem;
+  background-color: #0f0f23;
+  border: 1px solid #e94560;
+  color: #eaeaea;
+  border-radius: 4px;
+}
+
+.btn-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: #9ca3af;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.btn-icon:hover {
+  background-color: #0f3460;
+  color: #eaeaea;
+  border-color: #0f3460;
+}
+
+.btn-rename {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.data-file:hover .btn-rename {
+  opacity: 1;
 }
 
 .data-editor-main {
@@ -697,4 +759,141 @@ button {
 
 ::-webkit-scrollbar-thumb:hover {
   background: #164b8a;
+}
+
+/* Spreadsheet View Styles */
+.data-editor-spreadsheet {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  flex: 1;
+}
+
+.spreadsheet-container {
+  border-radius: 6px;
+  overflow: hidden;
+  min-height: 150px;
+}
+
+.spreadsheet-view {
+  height: 100%;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+/* Resizer Styles */
+.resizer {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  transition: background-color 0.15s;
+}
+
+.resizer:hover,
+.resizer.dragging {
+  background-color: rgba(233, 69, 96, 0.1);
+}
+
+.resizer-horizontal {
+  width: 8px;
+  cursor: col-resize;
+  flex-direction: column;
+}
+
+.resizer-vertical {
+  height: 12px;
+  cursor: row-resize;
+  flex-direction: row;
+}
+
+.resizer-handle {
+  background-color: #0f3460;
+  border-radius: 2px;
+  transition: background-color 0.15s;
+}
+
+.resizer-horizontal .resizer-handle {
+  width: 4px;
+  height: 32px;
+}
+
+.resizer-vertical .resizer-handle {
+  width: 48px;
+  height: 4px;
+}
+
+.resizer:hover .resizer-handle,
+.resizer.dragging .resizer-handle {
+  background-color: #e94560;
+}
+
+/* AG Grid Dark Theme Customization */
+.ag-theme-alpine-dark {
+  --ag-background-color: #0f0f23;
+  --ag-header-background-color: #16213e;
+  --ag-odd-row-background-color: #1a1a2e;
+  --ag-row-hover-color: #0f3460;
+  --ag-selected-row-background-color: #0f3460;
+  --ag-border-color: #0f3460;
+  --ag-header-foreground-color: #e94560;
+  --ag-foreground-color: #eaeaea;
+  --ag-cell-horizontal-border: 1px solid #0f3460;
+  --ag-row-border-color: #0f3460;
+  --ag-input-border-color: #0f3460;
+  --ag-input-focus-border-color: #e94560;
+  --ag-alpine-active-color: #e94560;
+  --ag-range-selection-border-color: #e94560;
+  --ag-font-size: 13px;
+  --ag-grid-size: 6px;
+  --ag-list-item-height: 32px;
+}
+
+.ag-theme-alpine-dark .ag-header-cell {
+  font-weight: 600;
+}
+
+.ag-theme-alpine-dark .ag-cell {
+  line-height: 32px;
+}
+
+.ag-theme-alpine-dark .ag-cell-edit-wrapper {
+  background-color: #0f0f23;
+}
+
+.ag-theme-alpine-dark .ag-text-field-input {
+  background-color: #0f0f23;
+  color: #eaeaea;
+  border: 1px solid #e94560;
+  padding: 4px 8px;
+}
+
+.ag-theme-alpine-dark .ag-row-selected-custom {
+  background-color: #0f3460 !important;
+  border-left: 3px solid #e94560;
+}
+
+.ag-theme-alpine-dark .row-index-cell {
+  color: #9ca3af;
+  font-size: 12px;
+}
+
+.ag-theme-alpine-dark .ag-header-cell-sortable:hover {
+  background-color: #0f3460;
+}
+
+.ag-theme-alpine-dark .ag-filter-toolpanel-header,
+.ag-theme-alpine-dark .ag-filter-toolpanel-search {
+  background-color: #16213e;
+}
+
+.ag-theme-alpine-dark .ag-popup {
+  background-color: #16213e;
+  border: 1px solid #0f3460;
+}
+
+.ag-theme-alpine-dark .ag-menu {
+  background-color: #16213e;
+  border: 1px solid #0f3460;
 }

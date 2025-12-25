@@ -168,13 +168,13 @@ function App() {
           <div className="header-controls">
             <div className="header-tabs">
               <button
-                className={`tab-button ${activeView === 'sim' ? 'active' : ''}`}
+                className="tab-button"
                 onClick={() => setActiveView('sim')}
               >
                 Simulation
               </button>
               <button
-                className={`tab-button ${activeView === 'data' ? 'active' : ''}`}
+                className="tab-button active"
                 onClick={() => setActiveView('data')}
               >
                 Data Editor
@@ -196,13 +196,13 @@ function App() {
           <div className="header-controls">
             <div className="header-tabs">
               <button
-                className={`tab-button ${activeView === 'sim' ? 'active' : ''}`}
+                className="tab-button active"
                 onClick={() => setActiveView('sim')}
               >
                 Simulation
               </button>
               <button
-                className={`tab-button ${activeView === 'data' ? 'active' : ''}`}
+                className="tab-button"
                 onClick={() => setActiveView('data')}
               >
                 Data Editor
@@ -225,13 +225,13 @@ function App() {
         <div className="header-controls">
           <div className="header-tabs">
             <button
-              className={`tab-button ${activeView === 'sim' ? 'active' : ''}`}
+              className="tab-button active"
               onClick={() => setActiveView('sim')}
             >
               Simulation
             </button>
             <button
-              className={`tab-button ${activeView === 'data' ? 'active' : ''}`}
+              className="tab-button"
               onClick={() => setActiveView('data')}
             >
               Data Editor
