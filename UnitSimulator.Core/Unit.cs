@@ -6,6 +6,32 @@ namespace UnitSimulator;
 public enum UnitRole { Melee, Ranged }
 public enum UnitFaction { Friendly, Enemy }
 
+/// <summary>
+/// 유닛의 이동 레이어를 정의합니다.
+/// Ground 유닛은 지형/장애물 영향을 받고, Air 유닛은 지형을 무시합니다.
+/// </summary>
+public enum MovementLayer
+{
+    Ground,  // 지상 유닛 - 지형/충돌 영향 받음
+    Air      // 공중 유닛 - 지형 무시, 공중 유닛끼리만 충돌
+}
+
+/// <summary>
+/// 유닛이 공격할 수 있는 대상 유형을 정의합니다.
+/// Flags 속성으로 복수 선택 가능합니다.
+/// </summary>
+[Flags]
+public enum TargetType
+{
+    None     = 0,
+    Ground   = 1 << 0,  // 지상 유닛 공격 가능
+    Air      = 1 << 1,  // 공중 유닛 공격 가능
+    Building = 1 << 2,  // 건물 공격 가능
+
+    GroundAndAir = Ground | Air,
+    All = Ground | Air | Building
+}
+
 public class Unit
 {
     public Vector2 Position { get; set; }
@@ -33,13 +59,25 @@ public class Unit
     public int FramesSinceSlotEvaluation { get; set; }
     public int FramesSinceTargetEvaluation { get; set; }
 
+    // Phase 1: Ground/Air Layer System
+    /// <summary>
+    /// 유닛의 이동 레이어 (Ground/Air)
+    /// </summary>
+    public MovementLayer Layer { get; }
+
+    /// <summary>
+    /// 유닛이 공격할 수 있는 대상 유형
+    /// </summary>
+    public TargetType CanTarget { get; }
+
     private readonly List<Vector2> _avoidancePath = new();
     private int _avoidancePathIndex = 0;
 
     private readonly List<Vector2> _movementPath = new();
     private int _movementPathIndex = 0;
 
-    public Unit(Vector2 position, float radius, float speed, float turnSpeed, UnitRole role, int hp, int id, UnitFaction faction)
+    public Unit(Vector2 position, float radius, float speed, float turnSpeed, UnitRole role, int hp, int id, UnitFaction faction,
+        MovementLayer layer = MovementLayer.Ground, TargetType canTarget = TargetType.Ground)
     {
         Position = position;
         CurrentDestination = position;
@@ -56,6 +94,30 @@ public class Unit
         Target = null;
         Id = id;
         Faction = faction;
+        Layer = layer;
+        CanTarget = canTarget;
+    }
+
+    /// <summary>
+    /// 이 유닛이 지정된 대상을 공격할 수 있는지 확인합니다.
+    /// </summary>
+    public bool CanAttack(Unit target)
+    {
+        if (target == null || target.IsDead) return false;
+
+        // 대상의 레이어에 따라 TargetType 확인
+        TargetType targetLayer = target.Layer == MovementLayer.Air ? TargetType.Air : TargetType.Ground;
+        return (CanTarget & targetLayer) != TargetType.None;
+    }
+
+    /// <summary>
+    /// 이 유닛이 지정된 대상과 같은 레이어에 있는지 확인합니다.
+    /// (충돌 검사 등에 사용)
+    /// </summary>
+    public bool IsSameLayer(Unit other)
+    {
+        if (other == null) return false;
+        return Layer == other.Layer;
     }
 
     public Vector2 GetSlotPosition(int slotIndex, float attackerRadius)

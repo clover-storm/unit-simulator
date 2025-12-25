@@ -23,6 +23,11 @@ public static class AvoidanceSystem
         foreach (var other in others)
         {
             if (other == mover || other.IsDead) continue;
+
+            // Phase 1: 같은 레이어의 유닛끼리만 충돌 고려
+            // Ground 유닛은 Ground 유닛과만, Air 유닛은 Air 유닛과만 충돌
+            if (!mover.IsSameLayer(other)) continue;
+
             float combinedRadius = moverRadius + other.Radius * GameConstants.COLLISION_RADIUS_SCALE;
 
             Vector2 relativePos = other.Position - mover.Position;

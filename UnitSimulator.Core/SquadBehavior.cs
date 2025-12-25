@@ -46,7 +46,11 @@ public class SquadBehavior
             var leader = friendlies.FirstOrDefault();
             if (leader != null)
             {
-                _squadTarget = livingEnemies.OrderBy(e => Vector2.Distance(leader.Position, e.Position)).FirstOrDefault();
+                // Phase 1: 공격 가능한 적만 타겟팅
+                _squadTarget = livingEnemies
+                    .Where(e => leader.CanAttack(e))
+                    .OrderBy(e => Vector2.Distance(leader.Position, e.Position))
+                    .FirstOrDefault();
                 if (_squadTarget != null)
                 {
                     Vector2 directionToTarget = Vector2.Normalize(_squadTarget.Position - leader.Position);
@@ -104,12 +108,13 @@ public class SquadBehavior
     private bool IsUnitReadyToEngage(Unit friendly, List<Unit> livingEnemies)
     {
         if (!livingEnemies.Any()) return false;
-        if (friendly.Target != null && !friendly.Target.IsDead) return true;
+        if (friendly.Target != null && !friendly.Target.IsDead && friendly.CanAttack(friendly.Target)) return true;
 
         float triggerDistance = friendly.AttackRange * GameConstants.ENGAGEMENT_TRIGGER_DISTANCE_MULTIPLIER;
         foreach (var enemy in livingEnemies)
         {
-            if (Vector2.Distance(friendly.Position, enemy.Position) <= triggerDistance)
+            // Phase 1: 공격 가능한 적만 교전 트리거
+            if (friendly.CanAttack(enemy) && Vector2.Distance(friendly.Position, enemy.Position) <= triggerDistance)
             {
                 return true;
             }
@@ -132,7 +137,7 @@ public class SquadBehavior
 
     private void UpdateUnitTarget(Unit friendly, List<Unit> livingEnemies)
     {
-        if (friendly.Target != null && friendly.Target.IsDead)
+        if (friendly.Target != null && (friendly.Target.IsDead || !friendly.CanAttack(friendly.Target)))
         {
             friendly.Target.ReleaseSlot(friendly);
             friendly.Target = null;
@@ -140,7 +145,12 @@ public class SquadBehavior
 
         friendly.AttackCooldown = Math.Max(0, friendly.AttackCooldown - 1);
         var previousTarget = friendly.Target;
-        friendly.Target = livingEnemies.OrderBy(e => Vector2.Distance(friendly.Position, e.Position)).FirstOrDefault();
+
+        // Phase 1: 공격 가능한 적 중 가장 가까운 적 선택
+        friendly.Target = livingEnemies
+            .Where(e => friendly.CanAttack(e))
+            .OrderBy(e => Vector2.Distance(friendly.Position, e.Position))
+            .FirstOrDefault();
 
         if (previousTarget != null && previousTarget != friendly.Target)
             previousTarget.ReleaseSlot(friendly);

@@ -22,6 +22,10 @@ public static class MathUtils
         foreach (var member in squad)
         {
             if (member == unit || member.IsDead) continue;
+
+            // Phase 1: 같은 레이어의 유닛끼리만 분리 벡터 계산
+            if (!unit.IsSameLayer(member)) continue;
+
             float distance = Vector2.Distance(unit.Position, member.Position);
             if (distance < radius && distance > 0)
             {

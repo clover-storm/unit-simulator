@@ -45,7 +45,8 @@ public class EnemyBehavior
         var previousTarget = enemy.Target;
         enemy.FramesSinceTargetEvaluation++;
 
-        bool needsTarget = enemy.Target == null || enemy.Target.IsDead;
+        // Phase 1: 현재 타겟이 죽었거나 공격 불가능하면 새 타겟 필요
+        bool needsTarget = enemy.Target == null || enemy.Target.IsDead || !enemy.CanAttack(enemy.Target);
 
         if (needsTarget)
         {
@@ -203,7 +204,8 @@ public class EnemyBehavior
         float bestScore = float.MaxValue;
         foreach (var candidate in candidates)
         {
-            if (candidate.IsDead) continue;
+            // Phase 1: 죽었거나 공격 불가능한 대상 제외
+            if (candidate.IsDead || !enemy.CanAttack(candidate)) continue;
             float score = EvaluateTargetScore(enemy, candidate);
             if (score < bestScore)
             {
