@@ -40,6 +40,7 @@ public class SimulatorCore
     private readonly SquadBehavior _squadBehavior = new();
     private readonly EnemyBehavior _enemyBehavior = new();
     private readonly CombatSystem _combatSystem = new();
+    private readonly UnitRegistry _unitRegistry = UnitRegistry.CreateWithDefaults();
     private bool _isInitialized = false;
     private bool _isRunning = false;
 
@@ -75,6 +76,11 @@ public class SimulatorCore
     public Vector2 MainTarget => _mainTarget;
     public PathfindingGrid? PathfindingGrid => _pathfindingGrid;
     public AStarPathfinder? Pathfinder => _pathfinder;
+
+    /// <summary>
+    /// 유닛 정의 레지스트리. 외부에서 정의 등록 가능.
+    /// </summary>
+    public UnitRegistry UnitRegistry => _unitRegistry;
 
     /// <summary>
     /// Gets or sets the current wave number.
@@ -625,28 +631,53 @@ public class SimulatorCore
         callbacks ??= new DefaultSimulatorCallbacks();
 
         int id = request.Faction == UnitFaction.Friendly ? GetNextFriendlyId() : GetNextEnemyId();
-        int health = request.HP > 0
-            ? request.HP
-            : (request.Faction == UnitFaction.Friendly ? GameConstants.FRIENDLY_HP : GameConstants.ENEMY_HP);
-        float unitSpeed = request.Faction == UnitFaction.Friendly ? 4.5f : 4.0f;
-        float unitTurnSpeed = request.Faction == UnitFaction.Friendly ? 0.08f : 0.1f;
+        Unit unit;
 
-        // 기본값: 지상, Ground 타겟 전용 근접 유닛
-        var unit = new Unit(
-            request.Position,
-            GameConstants.UNIT_RADIUS,
-            unitSpeed,
-            unitTurnSpeed,
-            UnitRole.Melee,
-            health,
-            id,
-            request.Faction
-        );
+        // 레지스트리에서 유닛 정의 조회
+        var definition = _unitRegistry.GetDefinition(request.UnitId);
+        if (definition != null)
+        {
+            // 정의가 있으면 해당 스탯으로 유닛 생성
+            unit = definition.CreateUnit(id, request.Faction, request.Position);
+
+            // HP 오버라이드가 있으면 적용
+            if (request.HP > 0)
+            {
+                unit.HP = request.HP;
+            }
+
+            callbacks.OnStateChanged($"Unit {unit.Label} ({definition.DisplayName}) spawned at ({request.Position.X:F0}, {request.Position.Y:F0})");
+        }
+        else
+        {
+            // 정의가 없으면 기본값으로 생성 (레거시 호환)
+            int health = request.HP > 0
+                ? request.HP
+                : (request.Faction == UnitFaction.Friendly ? GameConstants.FRIENDLY_HP : GameConstants.ENEMY_HP);
+            float unitSpeed = request.Faction == UnitFaction.Friendly ? 4.5f : 4.0f;
+            float unitTurnSpeed = request.Faction == UnitFaction.Friendly ? 0.08f : 0.1f;
+
+            unit = new Unit(
+                request.Position,
+                GameConstants.UNIT_RADIUS,
+                unitSpeed,
+                unitTurnSpeed,
+                UnitRole.Melee,
+                health,
+                id,
+                request.Faction
+            );
+
+            if (!string.IsNullOrEmpty(request.UnitId))
+            {
+                callbacks.OnStateChanged($"Warning: Unknown unit type '{request.UnitId}', using defaults");
+            }
+            callbacks.OnStateChanged($"Unit {unit.Label} spawned at ({request.Position.X:F0}, {request.Position.Y:F0})");
+        }
 
         var squad = request.Faction == UnitFaction.Friendly ? _friendlySquad : _enemySquad;
         squad.Add(unit);
 
-        callbacks.OnStateChanged($"Unit {unit.Label} spawned from death effect at ({request.Position.X}, {request.Position.Y})");
         callbacks.OnUnitEvent(new UnitEventData
         {
             EventType = UnitEventType.Spawned,
