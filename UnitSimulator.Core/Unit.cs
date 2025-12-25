@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 
 namespace UnitSimulator;
@@ -70,6 +71,32 @@ public class Unit
     /// </summary>
     public TargetType CanTarget { get; }
 
+    // Phase 2: Combat Mechanics
+    /// <summary>
+    /// 유닛이 보유한 능력 목록
+    /// </summary>
+    public List<AbilityData> Abilities { get; } = new();
+
+    /// <summary>
+    /// 최대 쉴드 HP (Shield 능력이 있는 경우)
+    /// </summary>
+    public int MaxShieldHP { get; private set; }
+
+    /// <summary>
+    /// 현재 쉴드 HP
+    /// </summary>
+    public int ShieldHP { get; set; }
+
+    /// <summary>
+    /// 기본 공격력 (Phase 2에서 추가)
+    /// </summary>
+    public int Damage { get; }
+
+    /// <summary>
+    /// 돌진 상태 (ChargeAttack 능력이 있는 경우)
+    /// </summary>
+    public ChargeState? ChargeState { get; private set; }
+
     private readonly List<Vector2> _avoidancePath = new();
     private int _avoidancePathIndex = 0;
 
@@ -77,7 +104,8 @@ public class Unit
     private int _movementPathIndex = 0;
 
     public Unit(Vector2 position, float radius, float speed, float turnSpeed, UnitRole role, int hp, int id, UnitFaction faction,
-        MovementLayer layer = MovementLayer.Ground, TargetType canTarget = TargetType.Ground)
+        MovementLayer layer = MovementLayer.Ground, TargetType canTarget = TargetType.Ground,
+        int damage = 1, List<AbilityData>? abilities = null)
     {
         Position = position;
         CurrentDestination = position;
@@ -96,6 +124,51 @@ public class Unit
         Faction = faction;
         Layer = layer;
         CanTarget = canTarget;
+        Damage = damage;
+
+        // Phase 2: 능력 초기화
+        if (abilities != null)
+        {
+            Abilities.AddRange(abilities);
+            InitializeAbilities();
+        }
+    }
+
+    /// <summary>
+    /// 능력 데이터를 기반으로 유닛 상태 초기화
+    /// </summary>
+    private void InitializeAbilities()
+    {
+        foreach (var ability in Abilities)
+        {
+            switch (ability)
+            {
+                case ShieldData shield:
+                    MaxShieldHP = shield.MaxShieldHP;
+                    ShieldHP = shield.MaxShieldHP;
+                    break;
+
+                case ChargeAttackData charge:
+                    ChargeState = new ChargeState();
+                    break;
+            }
+        }
+    }
+
+    /// <summary>
+    /// 특정 타입의 능력을 가지고 있는지 확인
+    /// </summary>
+    public bool HasAbility(AbilityType type)
+    {
+        return Abilities.Any(a => a.Type == type);
+    }
+
+    /// <summary>
+    /// 특정 타입의 능력 데이터 가져오기
+    /// </summary>
+    public T? GetAbility<T>() where T : AbilityData
+    {
+        return Abilities.OfType<T>().FirstOrDefault();
     }
 
     /// <summary>
@@ -273,14 +346,78 @@ public class Unit
         Forward = Vector2.Transform(Forward, Matrix3x2.CreateRotation(rotation));
     }
 
-    public void TakeDamage(int damage = 1)
+    /// <summary>
+    /// 피해를 받습니다. Shield가 있으면 Shield를 먼저 소모합니다.
+    /// </summary>
+    /// <param name="damage">받을 피해량</param>
+    /// <returns>실제로 HP에 적용된 피해량 (Shield 소모 제외)</returns>
+    public int TakeDamage(int damage = 1)
     {
-        HP = Math.Max(0, HP - damage);
+        int remainingDamage = damage;
+        int hpDamage = 0;
+
+        // Phase 2: Shield를 먼저 소모
+        if (ShieldHP > 0)
+        {
+            int shieldDamage = Math.Min(ShieldHP, remainingDamage);
+            ShieldHP -= shieldDamage;
+            remainingDamage -= shieldDamage;
+        }
+
+        // 남은 피해를 HP에 적용
+        if (remainingDamage > 0)
+        {
+            hpDamage = Math.Min(HP, remainingDamage);
+            HP = Math.Max(0, HP - remainingDamage);
+        }
+
         if (HP <= 0 && !IsDead)
         {
             IsDead = true;
             Velocity = Vector2.Zero;
             Target?.ReleaseSlot(this);
         }
+
+        return hpDamage;
+    }
+
+    /// <summary>
+    /// 현재 유효 속도 (돌진 중이면 돌진 속도 적용)
+    /// </summary>
+    public float GetEffectiveSpeed()
+    {
+        if (ChargeState?.IsCharging == true)
+        {
+            var chargeData = GetAbility<ChargeAttackData>();
+            if (chargeData != null)
+            {
+                return Speed * chargeData.SpeedMultiplier;
+            }
+        }
+        return Speed;
+    }
+
+    /// <summary>
+    /// 현재 공격 데미지 (돌진 완료 시 배율 적용)
+    /// </summary>
+    public int GetEffectiveDamage()
+    {
+        if (ChargeState?.IsCharged == true)
+        {
+            var chargeData = GetAbility<ChargeAttackData>();
+            if (chargeData != null)
+            {
+                return (int)(Damage * chargeData.DamageMultiplier);
+            }
+        }
+        return Damage;
+    }
+
+    /// <summary>
+    /// 공격 수행 후 호출 (돌진 상태 소비 등)
+    /// </summary>
+    public void OnAttackPerformed()
+    {
+        ChargeState?.ConsumeCharge();
     }
 }

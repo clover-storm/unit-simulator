@@ -13,6 +13,9 @@ public class SquadBehavior
         new(0, 0), new(0, 90), new(-80, -45), new(-80, 135)
     };
 
+    // Phase 2: 전투 시스템
+    private readonly CombatSystem _combatSystem = new();
+
     public void UpdateFriendlySquad(SimulatorCore sim, List<Unit> friendlies, List<Unit> enemies, Vector2 mainTarget)
     {
         var livingEnemies = enemies.Where(e => !e.IsDead).ToList();
@@ -166,8 +169,12 @@ public class SquadBehavior
             friendly.ClearMovementPath();
             friendly.CurrentDestination = friendly.Position;
             friendly.Velocity = Vector2.Zero;
+            friendly.ChargeState?.Reset();
             return;
         }
+
+        // Phase 2: 돌진 상태 업데이트
+        _combatSystem.UpdateChargeState(friendly, friendly.Target);
 
         int slotIndex = friendly.TakenSlotIndex;
         Vector2 attackPosition = slotIndex != -1
@@ -185,7 +192,9 @@ public class SquadBehavior
             friendly.CurrentDestination = friendly.Position;
             if (friendly.AttackCooldown <= 0)
             {
-                friendly.Target.TakeDamage(GameConstants.FRIENDLY_ATTACK_DAMAGE);
+                // Phase 2: CombatSystem을 통한 공격 처리 (SplashDamage, ChargeAttack 적용)
+                int damage = friendly.Damage > 0 ? friendly.GetEffectiveDamage() : GameConstants.FRIENDLY_ATTACK_DAMAGE;
+                _combatSystem.PerformAttack(friendly, friendly.Target, livingEnemies);
                 friendly.AttackCooldown = GameConstants.ATTACK_COOLDOWN;
                 friendly.RecentAttacks.Add(new Tuple<Unit, int>(friendly.Target, 5));
             }
@@ -233,7 +242,8 @@ public class SquadBehavior
 
             Vector2 steeringDir = MathUtils.SafeNormalize(steeringTarget - unit.Position);
             Vector2 finalDir = MathUtils.SafeNormalize(steeringDir + separationVector + avoidance);
-            unit.Velocity = finalDir * unit.Speed;
+            // Phase 2: 유효 속도 사용 (돌진 중이면 돌진 속도 적용)
+            unit.Velocity = finalDir * unit.GetEffectiveSpeed();
         }
         else
         {
