@@ -63,6 +63,46 @@ public class FrameData
     public List<UnitStateData> EnemyUnits { get; set; } = new();
 
     /// <summary>
+    /// State data for all friendly towers.
+    /// </summary>
+    public List<TowerStateData> FriendlyTowers { get; set; } = new();
+
+    /// <summary>
+    /// State data for all enemy towers.
+    /// </summary>
+    public List<TowerStateData> EnemyTowers { get; set; } = new();
+
+    /// <summary>
+    /// Elapsed simulation time (seconds).
+    /// </summary>
+    public float ElapsedTime { get; set; }
+
+    /// <summary>
+    /// Friendly crowns.
+    /// </summary>
+    public int FriendlyCrowns { get; set; }
+
+    /// <summary>
+    /// Enemy crowns.
+    /// </summary>
+    public int EnemyCrowns { get; set; }
+
+    /// <summary>
+    /// Current game result.
+    /// </summary>
+    public GameResult GameResult { get; set; } = GameResult.InProgress;
+
+    /// <summary>
+    /// Win condition type if the game has ended.
+    /// </summary>
+    public WinCondition? WinConditionType { get; set; }
+
+    /// <summary>
+    /// Whether overtime is active.
+    /// </summary>
+    public bool IsOvertime { get; set; }
+
+    /// <summary>
     /// Indicates whether all waves have been cleared.
     /// </summary>
     public bool AllWavesCleared { get; set; }
@@ -82,6 +122,7 @@ public class FrameData
     /// <param name="mainTarget">The main target position.</param>
     /// <param name="currentWave">The current wave number.</param>
     /// <param name="hasMoreWaves">Whether there are more waves to spawn.</param>
+    /// <param name="session">Optional game session for tower data.</param>
     /// <returns>A new FrameData instance containing the current state.</returns>
     public static FrameData FromSimulationState(
         int frameNumber,
@@ -89,7 +130,8 @@ public class FrameData
         List<Unit> enemies,
         Vector2 mainTarget,
         int currentWave,
-        bool hasMoreWaves)
+        bool hasMoreWaves,
+        GameSession? session = null)
     {
         var frameData = new FrameData
         {
@@ -103,6 +145,18 @@ public class FrameData
             AllWavesCleared = !hasMoreWaves && !enemies.Any(e => !e.IsDead),
             MaxFramesReached = frameNumber >= GameConstants.MAX_FRAMES - 1
         };
+
+        if (session != null)
+        {
+            frameData.FriendlyTowers = session.FriendlyTowers.Select(TowerStateData.FromTower).ToList();
+            frameData.EnemyTowers = session.EnemyTowers.Select(TowerStateData.FromTower).ToList();
+            frameData.ElapsedTime = session.ElapsedTime;
+            frameData.FriendlyCrowns = session.FriendlyCrowns;
+            frameData.EnemyCrowns = session.EnemyCrowns;
+            frameData.GameResult = session.Result;
+            frameData.WinConditionType = session.WinConditionType;
+            frameData.IsOvertime = session.IsOvertime;
+        }
 
         return frameData;
     }
@@ -182,6 +236,11 @@ public class UnitStateData
     /// The unit's definition ID (e.g., "golem", "skeleton").
     /// </summary>
     public string UnitId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Targeting priority for the unit.
+    /// </summary>
+    public string TargetPriority { get; set; } = string.Empty;
 
     /// <summary>
     /// The unit's role (Melee or Ranged).
@@ -344,6 +403,7 @@ public class UnitStateData
             Id = unit.Id,
             Label = unit.Label,
             UnitId = unit.UnitId,
+            TargetPriority = unit.TargetPriority.ToString(),
             Role = unit.Role.ToString(),
             Faction = unit.Faction.ToString(),
             IsDead = unit.IsDead,
@@ -375,6 +435,40 @@ public class UnitStateData
                 : null,
             IsMoving = isMoving,
             InAttackRange = inRange
+        };
+    }
+}
+
+/// <summary>
+/// Represents the state of a tower for serialization.
+/// </summary>
+public class TowerStateData
+{
+    public int Id { get; set; }
+    public string Type { get; set; } = string.Empty;
+    public string Faction { get; set; } = string.Empty;
+    public SerializableVector2 Position { get; set; } = new();
+    public float Radius { get; set; }
+    public float AttackRange { get; set; }
+    public int MaxHP { get; set; }
+    public int CurrentHP { get; set; }
+    public bool IsActivated { get; set; }
+    public float AttackCooldown { get; set; }
+
+    public static TowerStateData FromTower(Tower tower)
+    {
+        return new TowerStateData
+        {
+            Id = tower.Id,
+            Type = tower.Type.ToString(),
+            Faction = tower.Faction.ToString(),
+            Position = new SerializableVector2(tower.Position),
+            Radius = tower.Radius,
+            AttackRange = tower.AttackRange,
+            MaxHP = tower.MaxHP,
+            CurrentHP = tower.CurrentHP,
+            IsActivated = tower.IsActivated,
+            AttackCooldown = tower.AttackCooldown
         };
     }
 }

@@ -260,8 +260,10 @@ public class Program
             }
 
             var events = new FrameEvents();
-            enemyBehavior.UpdateEnemySquad(pathfindingSim, enemySquad, friendlySquad, events);
-            squadBehavior.UpdateFriendlySquad(pathfindingSim, friendlySquad, enemySquad, mainTarget, events);
+            var friendlyTowers = new List<Tower>();
+            var enemyTowers = new List<Tower>();
+            enemyBehavior.UpdateEnemySquad(pathfindingSim, enemySquad, friendlySquad, friendlyTowers, events);
+            squadBehavior.UpdateFriendlySquad(pathfindingSim, friendlySquad, enemySquad, enemyTowers, mainTarget, events);
             pathfindingSim.ApplyFrameEvents(events);
 
             if (renderer != null)

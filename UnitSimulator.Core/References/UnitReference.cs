@@ -52,6 +52,11 @@ public class UnitReference
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public TargetType CanTarget { get; init; } = TargetType.Ground;
 
+    /// <summary>타겟 우선순위</summary>
+    [JsonPropertyName("targetPriority")]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public TargetPriority TargetPriority { get; init; } = TargetPriority.Nearest;
+
     /// <summary>보유 능력 목록</summary>
     [JsonPropertyName("abilities")]
     public List<AbilityReferenceData> Abilities { get; init; } = new();
@@ -75,7 +80,8 @@ public class UnitReference
             canTarget: CanTarget,
             damage: Damage,
             abilities: abilities,
-            unitId: unitId
+            unitId: unitId,
+            targetPriority: TargetPriority
         );
         return unit;
     }

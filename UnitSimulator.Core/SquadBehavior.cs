@@ -16,7 +16,13 @@ public class SquadBehavior
     // Phase 2: 전투 시스템
     private readonly CombatSystem _combatSystem = new();
 
-    public void UpdateFriendlySquad(SimulatorCore sim, List<Unit> friendlies, List<Unit> enemies, Vector2 mainTarget, FrameEvents events)
+    public void UpdateFriendlySquad(
+        SimulatorCore sim,
+        List<Unit> friendlies,
+        List<Unit> enemies,
+        List<Tower> enemyTowers,
+        Vector2 mainTarget,
+        FrameEvents events)
     {
         var livingEnemies = enemies.Where(e => !e.IsDead).ToList();
 
@@ -27,7 +33,7 @@ public class SquadBehavior
 
             if (engagedUnits.Count > 0)
             {
-                UpdateCombatBehavior(sim, friendlies, livingEnemies, engagedUnits, events);
+                UpdateCombatBehavior(sim, friendlies, livingEnemies, enemyTowers, engagedUnits, events);
             }
 
             if (engagedUnits.Count < friendlies.Count)
@@ -37,8 +43,16 @@ public class SquadBehavior
         }
         else
         {
-            ResetSquadState(friendlies);
-            MoveToMainTarget(sim, friendlies, mainTarget);
+            var livingTowers = enemyTowers.Where(t => !t.IsDestroyed).ToList();
+            if (livingTowers.Count > 0)
+            {
+                UpdateTowerAssault(sim, friendlies, livingTowers, events);
+            }
+            else
+            {
+                ResetSquadState(friendlies);
+                MoveToMainTarget(sim, friendlies, mainTarget);
+            }
         }
     }
 
@@ -125,20 +139,26 @@ public class SquadBehavior
         return false;
     }
 
-    private void UpdateCombatBehavior(SimulatorCore sim, List<Unit> friendlies, List<Unit> livingEnemies, HashSet<Unit>? engagedUnits, FrameEvents events)
+    private void UpdateCombatBehavior(
+        SimulatorCore sim,
+        List<Unit> friendlies,
+        List<Unit> livingEnemies,
+        List<Tower> enemyTowers,
+        HashSet<Unit>? engagedUnits,
+        FrameEvents events)
     {
         foreach (var friendly in friendlies)
         {
             if (engagedUnits != null && !engagedUnits.Contains(friendly)) continue;
 
-            UpdateUnitTarget(friendly, livingEnemies);
-            UpdateCombat(sim, friendly, livingEnemies, friendlies, events);
+            UpdateUnitTarget(friendly, livingEnemies, enemyTowers);
+            UpdateCombat(sim, friendly, livingEnemies, enemyTowers, friendlies, events);
             friendly.Position += friendly.Velocity;
             friendly.UpdateRotation();
         }
     }
 
-    private void UpdateUnitTarget(Unit friendly, List<Unit> livingEnemies)
+    private void UpdateUnitTarget(Unit friendly, List<Unit> livingEnemies, List<Tower> enemyTowers)
     {
         if (friendly.Target != null && (friendly.Target.IsDead || !friendly.CanAttack(friendly.Target)))
         {
@@ -146,24 +166,42 @@ public class SquadBehavior
             friendly.Target = null;
         }
 
+        if (friendly.TargetTower != null && friendly.TargetTower.IsDestroyed)
+        {
+            friendly.TargetTower = null;
+        }
+
         friendly.AttackCooldown = Math.Max(0, friendly.AttackCooldown - 1);
         var previousTarget = friendly.Target;
+        var previousTower = friendly.TargetTower;
 
-        // Phase 1: 공격 가능한 적 중 가장 가까운 적 선택
-        friendly.Target = livingEnemies
-            .Where(e => friendly.CanAttack(e))
-            .OrderBy(e => Vector2.Distance(friendly.Position, e.Position))
-            .FirstOrDefault();
+        var selection = TowerTargetingRules.SelectTarget(friendly, livingEnemies, enemyTowers);
+        friendly.Target = selection.unitTarget;
+        friendly.TargetTower = selection.towerTarget;
 
         if (previousTarget != null && previousTarget != friendly.Target)
             previousTarget.ReleaseSlot(friendly);
 
         if (friendly.Target != null)
             friendly.Target.ClaimBestSlot(friendly);
+        else if (previousTarget != null)
+            friendly.TakenSlotIndex = -1;
     }
 
-    private void UpdateCombat(SimulatorCore sim, Unit friendly, List<Unit> livingEnemies, List<Unit> friendlies, FrameEvents events)
+    private void UpdateCombat(
+        SimulatorCore sim,
+        Unit friendly,
+        List<Unit> livingEnemies,
+        List<Tower> enemyTowers,
+        List<Unit> friendlies,
+        FrameEvents events)
     {
+        if (friendly.TargetTower != null)
+        {
+            UpdateTowerCombat(sim, friendly, friendly.TargetTower, friendlies, events);
+            return;
+        }
+
         if (friendly.Target == null)
         {
             friendly.ClearMovementPath();
@@ -204,14 +242,62 @@ public class SquadBehavior
         }
     }
 
+    private void UpdateTowerAssault(
+        SimulatorCore sim,
+        List<Unit> friendlies,
+        List<Tower> enemyTowers,
+        FrameEvents events)
+    {
+        foreach (var friendly in friendlies)
+        {
+            if (friendly.IsDead) continue;
+            UpdateUnitTarget(friendly, new List<Unit>(), enemyTowers);
+            if (friendly.TargetTower != null)
+            {
+                UpdateTowerCombat(sim, friendly, friendly.TargetTower, friendlies, events);
+                friendly.Position += friendly.Velocity;
+                friendly.UpdateRotation();
+            }
+        }
+    }
+
+    private void UpdateTowerCombat(
+        SimulatorCore sim,
+        Unit unit,
+        Tower targetTower,
+        List<Unit> friendlies,
+        FrameEvents events)
+    {
+        float distanceToTarget = Vector2.Distance(unit.Position, targetTower.Position);
+        bool inAttackRange = distanceToTarget <= unit.AttackRange;
+
+        if (inAttackRange)
+        {
+            unit.Velocity = Vector2.Zero;
+            unit.ClearMovementPath();
+            unit.ClearAvoidancePath();
+            unit.CurrentDestination = unit.Position;
+            if (unit.AttackCooldown <= 0)
+            {
+                events.AddDamageToTower(unit, targetTower, unit.GetEffectiveDamage());
+                unit.AttackCooldown = GameConstants.ATTACK_COOLDOWN;
+            }
+        }
+        else
+        {
+            MoveUnit(sim, unit, targetTower.Position, friendlies, null);
+        }
+    }
+
     private void MoveUnit(SimulatorCore sim, Unit unit, Vector2 destination, List<Unit> friendlies, List<Unit>? enemies)
     {
-        bool needsNewPath = Vector2.Distance(unit.CurrentDestination, destination) > GameConstants.DESTINATION_THRESHOLD;
+        var adjustedDestination = sim.TerrainSystem.GetAdjustedDestination(unit, destination);
+        bool needsNewPath = Vector2.Distance(unit.CurrentDestination, adjustedDestination) > GameConstants.DESTINATION_THRESHOLD;
         if (needsNewPath)
         {
-            var path = sim.Pathfinder?.FindPath(unit.Position, destination);
+            var path = sim.Pathfinder?.FindPath(unit.Position, adjustedDestination);
             unit.SetMovementPath(path);
-            unit.CurrentDestination = destination;
+            unit.CurrentDestination = adjustedDestination;
         }
 
         if (unit.TryGetNextMovementWaypoint(out var waypoint))

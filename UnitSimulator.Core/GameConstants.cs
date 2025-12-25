@@ -10,6 +10,7 @@ public static class GameConstants
     public const int SIMULATION_WIDTH = 3200;
     public const int SIMULATION_HEIGHT = 5100;
     public const int MAX_FRAMES = 3000;
+    public const float FRAME_TIME_SECONDS = 1f / 30f;
 
     // Unit settings
     public const float UNIT_RADIUS = 20f;

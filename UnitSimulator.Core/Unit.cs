@@ -7,6 +7,12 @@ namespace UnitSimulator;
 public enum UnitRole { Melee, Ranged }
 public enum UnitFaction { Friendly, Enemy }
 
+public enum TargetPriority
+{
+    Nearest,
+    Buildings
+}
+
 /// <summary>
 /// 유닛의 이동 레이어를 정의합니다.
 /// Ground 유닛은 지형/장애물 영향을 받고, Air 유닛은 지형을 무시합니다.
@@ -42,6 +48,7 @@ public class Unit
     public float Speed { get; }
     public float TurnSpeed { get; }
     public Unit? Target { get; set; }
+    public Tower? TargetTower { get; set; }
     public int HP { get; set; }
     public UnitRole Role { get; }
     public float AttackRange { get; }
@@ -50,6 +57,7 @@ public class Unit
     public int Id { get; }
     public string UnitId { get; }
     public UnitFaction Faction { get; }
+    public TargetPriority TargetPriority { get; set; } = TargetPriority.Nearest;
     public Vector2 CurrentDestination { get; set; } = Vector2.Zero;
     public Unit? AvoidanceThreat { get; set; }
     public string Label => $"{(Faction == UnitFaction.Friendly ? "F" : "E")}{Id}";
@@ -106,7 +114,8 @@ public class Unit
 
     public Unit(Vector2 position, float radius, float speed, float turnSpeed, UnitRole role, int hp, int id, UnitFaction faction,
         MovementLayer layer = MovementLayer.Ground, TargetType canTarget = TargetType.Ground,
-        int damage = 1, List<AbilityData>? abilities = null, string unitId = "unknown")
+        int damage = 1, List<AbilityData>? abilities = null, string unitId = "unknown",
+        TargetPriority targetPriority = TargetPriority.Nearest)
     {
         Position = position;
         CurrentDestination = position;
@@ -120,6 +129,7 @@ public class Unit
         IsDead = false;
         Velocity = Vector2.Zero;
         UnitId = unitId;
+        TargetPriority = targetPriority;
         Forward = Vector2.UnitX;
         Target = null;
         Id = id;
@@ -192,6 +202,21 @@ public class Unit
         // 대상의 레이어에 따라 TargetType 확인
         TargetType targetLayer = target.Layer == MovementLayer.Air ? TargetType.Air : TargetType.Ground;
         return (CanTarget & targetLayer) != TargetType.None;
+    }
+
+    /// <summary>
+    /// 이 유닛이 지정된 타워를 공격할 수 있는지 확인합니다.
+    /// </summary>
+    public bool CanAttackTower(Tower tower)
+    {
+        if (tower == null || tower.IsDestroyed) return false;
+
+        if ((CanTarget & TargetType.Building) != TargetType.None)
+        {
+            return true;
+        }
+
+        return (CanTarget & TargetType.Ground) != TargetType.None;
     }
 
     /// <summary>

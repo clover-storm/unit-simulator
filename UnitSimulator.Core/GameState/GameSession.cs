@@ -109,6 +109,51 @@ public class GameSession
         IsOvertime = false;
     }
 
+    public void LoadFromState(
+        List<TowerStateData> friendlyTowers,
+        List<TowerStateData> enemyTowers,
+        float elapsedTime,
+        int friendlyCrowns,
+        int enemyCrowns,
+        GameResult result,
+        WinCondition? winConditionType,
+        bool isOvertime)
+    {
+        FriendlyTowers.Clear();
+        EnemyTowers.Clear();
+
+        foreach (var towerState in friendlyTowers)
+        {
+            FriendlyTowers.Add(CreateTowerFromState(towerState));
+        }
+
+        foreach (var towerState in enemyTowers)
+        {
+            EnemyTowers.Add(CreateTowerFromState(towerState));
+        }
+
+        ElapsedTime = elapsedTime;
+        FriendlyCrowns = friendlyCrowns;
+        EnemyCrowns = enemyCrowns;
+        Result = result;
+        WinConditionType = winConditionType;
+        IsOvertime = isOvertime;
+    }
+
+    private static Tower CreateTowerFromState(TowerStateData state)
+    {
+        var type = Enum.Parse<TowerType>(state.Type);
+        var faction = Enum.Parse<UnitFaction>(state.Faction);
+        Tower tower = type == TowerType.King
+            ? TowerStats.CreateKingTower(state.Id, faction, state.Position.ToVector2())
+            : TowerStats.CreatePrincessTower(state.Id, faction, state.Position.ToVector2());
+
+        tower.CurrentHP = state.CurrentHP;
+        tower.AttackCooldown = state.AttackCooldown;
+        tower.IsActivated = state.IsActivated;
+        return tower;
+    }
+
     // ════════════════════════════════════════════════════════════════════════
     // 타워 조회
     // ════════════════════════════════════════════════════════════════════════

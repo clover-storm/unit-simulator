@@ -45,6 +45,9 @@ public class UnitDefinition
     /// <summary>공격 가능 대상</summary>
     public TargetType CanTarget { get; init; } = TargetType.Ground;
 
+    /// <summary>타겟 우선순위</summary>
+    public TargetPriority TargetPriority { get; init; } = TargetPriority.Nearest;
+
     // === 특수 능력 ===
 
     /// <summary>유닛이 보유한 능력 목록</summary>
@@ -68,7 +71,8 @@ public class UnitDefinition
             canTarget: CanTarget,
             damage: Damage,
             abilities: Abilities,
-            unitId: UnitId
+            unitId: UnitId,
+            targetPriority: TargetPriority
         );
     }
 }

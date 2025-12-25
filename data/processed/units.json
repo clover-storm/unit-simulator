@@ -1,0 +1,112 @@
+[
+  {
+    "id": 1,
+    "name": "Infantry Squad Alpha",
+    "type": "Infantry",
+    "faction": "Friendly",
+    "health": 100,
+    "attack": 15,
+    "defense": 10,
+    "speed": 5,
+    "range": 2
+  },
+  {
+    "id": 2,
+    "name": "Tank Division Bravo",
+    "type": "Armor",
+    "faction": "Friendly",
+    "health": 250,
+    "attack": 45,
+    "defense": 35,
+    "speed": 3,
+    "range": 5
+  },
+  {
+    "id": 3,
+    "name": "Sniper Team Charlie",
+    "type": "Infantry",
+    "faction": "Friendly",
+    "health": 60,
+    "attack": 50,
+    "defense": 5,
+    "speed": 4,
+    "range": 10
+  },
+  {
+    "id": 4,
+    "name": "Artillery Battery Delta",
+    "type": "Artillery",
+    "faction": "Friendly",
+    "health": 80,
+    "attack": 70,
+    "defense": 10,
+    "speed": 1,
+    "range": 15
+  },
+  {
+    "id": 5,
+    "name": "Scout Recon Echo",
+    "type": "Recon",
+    "faction": "Friendly",
+    "health": 50,
+    "attack": 10,
+    "defense": 8,
+    "speed": 8,
+    "range": 3
+  },
+  {
+    "id": 6,
+    "name": "Enemy Infantry Red",
+    "type": "Infantry",
+    "faction": "Enemy",
+    "health": 100,
+    "attack": 14,
+    "defense": 12,
+    "speed": 5,
+    "range": 2
+  },
+  {
+    "id": 7,
+    "name": "Enemy Tank Black",
+    "type": "Armor",
+    "faction": "Enemy",
+    "health": 230,
+    "attack": 40,
+    "defense": 38,
+    "speed": 3,
+    "range": 5
+  },
+  {
+    "id": 8,
+    "name": "Enemy Sniper Shadow",
+    "type": "Infantry",
+    "faction": "Enemy",
+    "health": 55,
+    "attack": 48,
+    "defense": 4,
+    "speed": 4,
+    "range": 10
+  },
+  {
+    "id": 9,
+    "name": "Enemy Artillery Storm",
+    "type": "Artillery",
+    "faction": "Enemy",
+    "health": 75,
+    "attack": 65,
+    "defense": 8,
+    "speed": 1,
+    "range": 14
+  },
+  {
+    "id": 10,
+    "name": "Enemy Scout Viper",
+    "type": "Recon",
+    "faction": "Enemy",
+    "health": 45,
+    "attack": 12,
+    "defense": 6,
+    "speed": 9,
+    "range": 3
+  }
+]

@@ -40,6 +40,10 @@ public class SimulatorCore
     private readonly SquadBehavior _squadBehavior = new();
     private readonly EnemyBehavior _enemyBehavior = new();
     private readonly CombatSystem _combatSystem = new();
+    private readonly GameSession _gameSession = new();
+    private readonly TowerBehavior _towerBehavior = new();
+    private readonly WinConditionEvaluator _winConditionEvaluator = new();
+    private readonly TerrainSystem _terrainSystem = new();
     private readonly UnitRegistry _unitRegistry = UnitRegistry.CreateWithDefaults();
     private ReferenceManager? _referenceManager;
     private bool _isInitialized = false;
@@ -77,6 +81,8 @@ public class SimulatorCore
     public Vector2 MainTarget => _mainTarget;
     public PathfindingGrid? PathfindingGrid => _pathfindingGrid;
     public AStarPathfinder? Pathfinder => _pathfinder;
+    public GameSession GameSession => _gameSession;
+    public TerrainSystem TerrainSystem => _terrainSystem;
 
     /// <summary>
     /// 유닛 정의 레지스트리. 외부에서 정의 등록 가능.
@@ -246,6 +252,8 @@ public class SimulatorCore
         _pathfindingGrid = new PathfindingGrid(GameConstants.SIMULATION_WIDTH, GameConstants.SIMULATION_HEIGHT, GameConstants.UNIT_RADIUS);
         _pathfinder = new AStarPathfinder(_pathfindingGrid);
 
+        _gameSession.InitializeDefaultTowers();
+
         _isInitialized = true;
         _currentFrame = 0;
         _currentWave = 0;
@@ -331,6 +339,13 @@ public class SimulatorCore
                 Console.WriteLine($"Maximum frames reached at frame {_currentFrame}.");
                 break;
             }
+
+            if (_gameSession.Result != GameResult.InProgress)
+            {
+                callbacks.OnSimulationComplete(_currentFrame, _gameSession.Result.ToString());
+                Console.WriteLine($"Simulation ended with result {_gameSession.Result} at frame {_currentFrame}.");
+                break;
+            }
         }
 
         _isRunning = false;
@@ -349,6 +364,7 @@ public class SimulatorCore
 
         callbacks ??= new DefaultSimulatorCallbacks();
         var events = new FrameEvents();
+        float deltaTime = GameConstants.FRAME_TIME_SECONDS;
 
         // Process queued commands first
         ProcessCommands(callbacks);
@@ -356,15 +372,23 @@ public class SimulatorCore
         // ════════════════════════════════════════════════════════════════════════
         // Phase 1: Collect - 모든 유닛 틱, 이벤트 수집 (HP 변경 없음)
         // ════════════════════════════════════════════════════════════════════════
-        _enemyBehavior.UpdateEnemySquad(this, _enemySquad, _friendlySquad, events);
-        _squadBehavior.UpdateFriendlySquad(this, _friendlySquad, _enemySquad, _mainTarget, events);
+        _enemyBehavior.UpdateEnemySquad(this, _enemySquad, _friendlySquad, _gameSession.FriendlyTowers, events);
+        _squadBehavior.UpdateFriendlySquad(this, _friendlySquad, _enemySquad, _gameSession.EnemyTowers, _mainTarget, events);
+        _towerBehavior.UpdateAllTowers(_gameSession, _friendlySquad, _enemySquad, events, deltaTime);
 
         // ════════════════════════════════════════════════════════════════════════
         // Phase 2: Apply - 이벤트 일괄 적용
         // ════════════════════════════════════════════════════════════════════════
         ApplyDamageEvents(events);
+        ApplyTowerDamageEvents(events);
+        ApplyDamageToTowers(events);
         ProcessDeaths(events, callbacks);
         ApplySpawnEvents(events, callbacks);
+
+        _gameSession.ElapsedTime += deltaTime;
+        _gameSession.UpdateKingTowerActivation();
+        _gameSession.UpdateCrowns();
+        _winConditionEvaluator.Evaluate(_gameSession);
 
         // Generate frame data
         var frameData = FrameData.FromSimulationState(
@@ -373,7 +397,8 @@ public class SimulatorCore
             _enemySquad,
             _mainTarget,
             _currentWave,
-            _hasMoreWaves
+            _hasMoreWaves,
+            _gameSession
         );
 
         // Notify callbacks of frame generation
@@ -409,6 +434,24 @@ public class SimulatorCore
         _nextEnemyId = _enemySquad.Any() ? _enemySquad.Max(u => u.Id) : 0;
         _currentWave = frameData.CurrentWave;
 
+        if (frameData.FriendlyTowers.Any() || frameData.EnemyTowers.Any())
+        {
+            _gameSession.LoadFromState(
+                frameData.FriendlyTowers,
+                frameData.EnemyTowers,
+                frameData.ElapsedTime,
+                frameData.FriendlyCrowns,
+                frameData.EnemyCrowns,
+                frameData.GameResult,
+                frameData.WinConditionType,
+                frameData.IsOvertime
+            );
+        }
+        else
+        {
+            _gameSession.InitializeDefaultTowers();
+        }
+
         ReestablishTargetReferences();
 
         _isInitialized = true;
@@ -426,6 +469,11 @@ public class SimulatorCore
             var role = Enum.Parse<UnitRole>(state.Role);
             var faction = Enum.Parse<UnitFaction>(state.Faction);
             var abilities = RehydrateAbilities(state.Abilities ?? new List<AbilityType>());
+            var targetPriority = TargetPriority.Nearest;
+            if (!string.IsNullOrWhiteSpace(state.TargetPriority))
+            {
+                Enum.TryParse(state.TargetPriority, out targetPriority);
+            }
 
             var unit = new Unit(
                 state.Position.ToVector2(),
@@ -440,7 +488,8 @@ public class SimulatorCore
                 state.CanTarget,
                 state.Damage,
                 abilities,
-                unitId: string.IsNullOrWhiteSpace(state.UnitId) ? "unknown" : state.UnitId
+                unitId: string.IsNullOrWhiteSpace(state.UnitId) ? "unknown" : state.UnitId,
+                targetPriority: targetPriority
             );
 
             unit.Velocity = state.Velocity.ToVector2();
@@ -539,6 +588,30 @@ public class SimulatorCore
     }
 
     /// <summary>
+    /// 타워가 유닛에게 가한 피해를 적용합니다.
+    /// </summary>
+    private void ApplyTowerDamageEvents(FrameEvents events)
+    {
+        foreach (var damage in events.TowerDamages)
+        {
+            if (damage.Target.IsDead) continue;
+            damage.Target.TakeDamage(damage.Amount);
+        }
+    }
+
+    /// <summary>
+    /// 유닛이 타워에게 가한 피해를 적용합니다.
+    /// </summary>
+    private void ApplyDamageToTowers(FrameEvents events)
+    {
+        foreach (var damage in events.DamageToTowers)
+        {
+            if (damage.Target.IsDestroyed) continue;
+            damage.Target.TakeDamage(damage.Amount);
+        }
+    }
+
+    /// <summary>
     /// 사망 판정 및 Death 어빌리티를 처리합니다. (Phase 2 Step 2)
     /// 큐 기반으로 연쇄 사망을 처리합니다.
     /// </summary>
@@ -612,6 +685,8 @@ public class SimulatorCore
     {
         callbacks ??= new DefaultSimulatorCallbacks();
         ApplyDamageEvents(events);
+        ApplyTowerDamageEvents(events);
+        ApplyDamageToTowers(events);
         ProcessDeaths(events, callbacks);
         ApplySpawnEvents(events, callbacks);
     }
@@ -801,7 +876,8 @@ public class SimulatorCore
             _enemySquad,
             _mainTarget,
             _currentWave,
-            _hasMoreWaves
+            _hasMoreWaves,
+            _gameSession
         );
     }
 

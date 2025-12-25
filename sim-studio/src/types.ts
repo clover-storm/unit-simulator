@@ -9,6 +9,7 @@ export interface UnitStateData {
   id: number;
   label: string;
   unitId?: string;
+  targetPriority?: string;
   role: 'Melee' | 'Ranged';
   faction: 'Friendly' | 'Enemy';
   isDead: boolean;
@@ -30,6 +31,19 @@ export interface UnitStateData {
   inAttackRange: boolean;
 }
 
+export interface TowerStateData {
+  id: number;
+  type: string;
+  faction: string;
+  position: SerializableVector2;
+  radius: number;
+  attackRange: number;
+  maxHP: number;
+  currentHP: number;
+  isActivated: boolean;
+  attackCooldown: number;
+}
+
 export interface FrameData {
   frameNumber: number;
   currentWave: number;
@@ -38,6 +52,14 @@ export interface FrameData {
   mainTarget: SerializableVector2;
   friendlyUnits: UnitStateData[];
   enemyUnits: UnitStateData[];
+  friendlyTowers?: TowerStateData[];
+  enemyTowers?: TowerStateData[];
+  elapsedTime?: number;
+  friendlyCrowns?: number;
+  enemyCrowns?: number;
+  gameResult?: string;
+  winConditionType?: string | null;
+  isOvertime?: boolean;
   allWavesCleared: boolean;
   maxFramesReached: boolean;
 }
