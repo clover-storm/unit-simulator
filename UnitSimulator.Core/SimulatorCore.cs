@@ -405,9 +405,9 @@ public class SimulatorCore
             unit.AttackCooldown = state.AttackCooldown;
             unit.IsDead = state.IsDead;
             unit.ShieldHP = Math.Min(state.ShieldHP, state.MaxShieldHP);
-            unit.ChargeState ??= state.HasChargeState ? new ChargeState() : null;
-            if (unit.ChargeState != null)
+            if (state.HasChargeState)
             {
+                var chargeState = unit.EnsureChargeState();
                 unit.ChargeState.IsCharging = state.IsCharging;
                 unit.ChargeState.IsCharged = state.IsCharged;
                 unit.ChargeState.RequiredDistance = state.RequiredChargeDistance;

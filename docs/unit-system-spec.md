@@ -486,6 +486,11 @@ public class Unit
 
 ## 9. Implementation Roadmap
 
+### 9.0 Current Implementation Status (Core)
+- Phase 1: Ground/Air 레이어, TargetType 필터링, 레이어별 충돌/분리 로직 구현 완료.
+- Phase 2 (부분): SplashDamage, Shield HP, ChargeAttack(속도/배율 적용), DeathSpawn/DeathDamage(사망 시 스폰/폭발, 스폰은 현재 기본 근접 스탯으로 생성) 구현 및 직렬화 반영.
+- 미구현/추가 예정: Ability 데이터 기반 스폰 유닛 정의 로딩, Status Effects/Buildings/Spells(Phase 3~5), Projectile/Factory 파이프라인.
+
 ### Phase 1: Foundation (기초)
 
 **목표**: Ground/Air 레이어 및 타겟팅 시스템

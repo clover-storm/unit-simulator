@@ -156,6 +156,15 @@ public class Unit
     }
 
     /// <summary>
+    /// 돌진 상태 객체를 보장합니다.
+    /// </summary>
+    public ChargeState EnsureChargeState()
+    {
+        ChargeState ??= new ChargeState();
+        return ChargeState;
+    }
+
+    /// <summary>
     /// 특정 타입의 능력을 가지고 있는지 확인
     /// </summary>
     public bool HasAbility(AbilityType type)
