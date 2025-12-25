@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { Command, UnitStateData } from './types';
+import { CameraFocusMode, Command, UnitStateData } from './types';
 import { useWebSocket } from './hooks/useWebSocket';
 import { downloadFrameLog } from './utils/frameLogDownload';
 import SimulationCanvas from './components/SimulationCanvas';
@@ -22,6 +22,7 @@ function App() {
   const [selectedFaction, setSelectedFaction] = useState<'Friendly' | 'Enemy' | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [seekFrameInput, setSeekFrameInput] = useState<string>('0');
+  const [focusMode, setFocusMode] = useState<CameraFocusMode>('auto');
 
   const {
     frameData,
@@ -296,6 +297,7 @@ function App() {
             frameData={frameData}
             selectedUnitId={selectedUnitId}
             selectedFaction={selectedFaction}
+            focusMode={focusMode}
             onUnitSelect={handleUnitSelect}
             onCanvasClick={(x, y) => {
               if (selectedUnit && !selectedUnit.isDead && canControl) {
@@ -319,6 +321,8 @@ function App() {
             onReset={handleReset}
             isConnected={connectionStatus === 'connected'}
             isPlaying={isPlaying}
+            focusMode={focusMode}
+            onFocusModeChange={setFocusMode}
             disabled={!canControl}
           />
 

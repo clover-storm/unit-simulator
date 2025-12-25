@@ -55,6 +55,14 @@ export type MessageType =
 // Session types
 export type SessionRole = 'owner' | 'viewer';
 
+export type CameraFocusMode =
+  | 'auto'
+  | 'selected'
+  | 'all-living'
+  | 'friendly'
+  | 'enemy'
+  | 'all';
+
 export interface SessionInfo {
   sessionId: string;
   createdAt: string;

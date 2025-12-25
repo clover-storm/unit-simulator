@@ -1,41 +1,313 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
-import { FrameData, UnitStateData } from '../types';
+import { CameraFocusMode, FrameData, UnitStateData } from '../types';
 
 interface SimulationCanvasProps {
   frameData: FrameData | null;
   selectedUnitId: number | null;
   selectedFaction: 'Friendly' | 'Enemy' | null;
+  focusMode: CameraFocusMode;
   onUnitSelect: (unit: UnitStateData | null) => void;
   onCanvasClick: (x: number, y: number) => void;
 }
 
-const CANVAS_WIDTH = 1200;
-const CANVAS_HEIGHT = 500;
+const DEFAULT_CANVAS_WIDTH = 1200;
+const DEFAULT_CANVAS_HEIGHT = 500;
 const WORLD_WIDTH = 1200;
 const WORLD_HEIGHT = 720;
-const BASE_SCALE = Math.min(CANVAS_WIDTH / WORLD_WIDTH, CANVAS_HEIGHT / WORLD_HEIGHT); // uniform scale to avoid distortion
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 3;
+const AUTO_FIT_PADDING = 60;
+const AUTO_FIT_MIN_SIZE = 200;
+const AUTO_FIT_COOLDOWN_MS = 2000;
+const CAMERA_PAN_SPEED = 1600;
+const CAMERA_ZOOM_SPEED = 1.5;
+
+const getBaseScale = (width: number, height: number) =>
+  Math.min(width / WORLD_WIDTH, height / WORLD_HEIGHT);
+
+const getUnitsBounds = (units: UnitStateData[]) => {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  units.forEach((unit) => {
+    minX = Math.min(minX, unit.position.x - unit.radius);
+    minY = Math.min(minY, unit.position.y - unit.radius);
+    maxX = Math.max(maxX, unit.position.x + unit.radius);
+    maxY = Math.max(maxY, unit.position.y + unit.radius);
+  });
+
+  if (!Number.isFinite(minX)) {
+    return null;
+  }
+
+  return { minX, minY, maxX, maxY };
+};
+
+const moveTowards = (current: number, target: number, maxDelta: number) => {
+  const delta = target - current;
+  if (Math.abs(delta) <= maxDelta) return target;
+  return current + Math.sign(delta) * maxDelta;
+};
 
 function SimulationCanvas({
   frameData,
   selectedUnitId,
   selectedFaction,
+  focusMode,
   onUnitSelect,
   onCanvasClick,
 }: SimulationCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const initialPanX = (CANVAS_WIDTH - WORLD_WIDTH * BASE_SCALE) / 2;
-  const initialPanY = (CANVAS_HEIGHT - WORLD_HEIGHT * BASE_SCALE) / 2;
+  const [canvasSize, setCanvasSize] = useState({
+    width: DEFAULT_CANVAS_WIDTH,
+    height: DEFAULT_CANVAS_HEIGHT,
+  });
+  const baseScale = getBaseScale(canvasSize.width, canvasSize.height);
+  const initialPanX = (canvasSize.width - WORLD_WIDTH * baseScale) / 2;
+  const initialPanY = (canvasSize.height - WORLD_HEIGHT * baseScale) / 2;
   const [view, setView] = useState({ zoom: 1, panX: initialPanX, panY: initialPanY });
   const viewRef = useRef(view);
+  const targetViewRef = useRef(view);
+  const animationFrameRef = useRef<number | null>(null);
+  const lastFrameTimeRef = useRef<number | null>(null);
   const isPanningRef = useRef(false);
   const lastPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const prevCanvasSizeRef = useRef(canvasSize);
+  const lastManualInteractionRef = useRef(0);
+  const lastFocusKeyRef = useRef('none');
+  const autoFitAppliedSizeRef = useRef<{ width: number; height: number } | null>(null);
 
-  const updateView = (next: typeof view) => {
+  const updateView = useCallback((next: typeof view) => {
     viewRef.current = next;
     setView(next);
-  };
+  }, []);
+
+  const animateToTarget = useCallback((time: number) => {
+    const lastTime = lastFrameTimeRef.current ?? time;
+    const deltaSeconds = Math.max(0, (time - lastTime) / 1000);
+    lastFrameTimeRef.current = time;
+
+    const current = viewRef.current;
+    const target = targetViewRef.current;
+
+    const nextPanX = moveTowards(current.panX, target.panX, CAMERA_PAN_SPEED * deltaSeconds);
+    const nextPanY = moveTowards(current.panY, target.panY, CAMERA_PAN_SPEED * deltaSeconds);
+    const nextZoom = moveTowards(current.zoom, target.zoom, CAMERA_ZOOM_SPEED * deltaSeconds);
+
+    const reached =
+      Math.abs(nextPanX - target.panX) < 0.5 &&
+      Math.abs(nextPanY - target.panY) < 0.5 &&
+      Math.abs(nextZoom - target.zoom) < 0.001;
+
+    updateView({ zoom: nextZoom, panX: nextPanX, panY: nextPanY });
+
+    if (reached) {
+      animationFrameRef.current = null;
+      lastFrameTimeRef.current = null;
+      return;
+    }
+
+    animationFrameRef.current = requestAnimationFrame(animateToTarget);
+  }, [updateView]);
+
+  const setTargetView = useCallback((next: typeof view) => {
+    targetViewRef.current = next;
+    if (animationFrameRef.current === null) {
+      animationFrameRef.current = requestAnimationFrame(animateToTarget);
+    }
+  }, [animateToTarget]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const updateSize = () => {
+      const rect = canvas.getBoundingClientRect();
+      const nextWidth = Math.max(1, Math.round(rect.width));
+      const nextHeight = Math.max(1, Math.round(rect.height));
+      setCanvasSize((prev) =>
+        prev.width === nextWidth && prev.height === nextHeight
+          ? prev
+          : { width: nextWidth, height: nextHeight }
+      );
+    };
+
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(canvas);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (animationFrameRef.current !== null) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    canvas.width = canvasSize.width;
+    canvas.height = canvasSize.height;
+  }, [canvasSize.height, canvasSize.width]);
+
+  useEffect(() => {
+    if (!frameData) return;
+    if (canvasSize.width === 0 || canvasSize.height === 0) return;
+
+    const selectionKey =
+      selectedUnitId !== null && selectedFaction
+        ? `${selectedFaction}-${selectedUnitId}`
+        : 'none';
+    const focusKey = `${focusMode}-${selectionKey}`;
+    const selectionChanged = focusKey !== lastFocusKeyRef.current;
+    if (selectionChanged) {
+      lastFocusKeyRef.current = focusKey;
+    }
+
+    const now = Date.now();
+    if (!selectionChanged && now - lastManualInteractionRef.current < AUTO_FIT_COOLDOWN_MS) {
+      return;
+    }
+
+    const allUnits = [...frameData.friendlyUnits, ...frameData.enemyUnits];
+    const selectedUnit =
+      selectedUnitId !== null && selectedFaction
+        ? (selectedFaction === 'Friendly'
+            ? frameData.friendlyUnits
+            : frameData.enemyUnits
+          ).find((unit) => unit.id === selectedUnitId) ?? null
+        : null;
+
+    const livingFriendly = frameData.friendlyUnits.filter((unit) => !unit.isDead);
+    const livingEnemy = frameData.enemyUnits.filter((unit) => !unit.isDead);
+    const livingUnits = [...livingFriendly, ...livingEnemy];
+
+    let focusUnits: UnitStateData[] = [];
+    switch (focusMode) {
+      case 'selected':
+        focusUnits = selectedUnit ? [selectedUnit] : [];
+        break;
+      case 'friendly':
+        focusUnits = livingFriendly.length > 0 ? livingFriendly : frameData.friendlyUnits;
+        break;
+      case 'enemy':
+        focusUnits = livingEnemy.length > 0 ? livingEnemy : frameData.enemyUnits;
+        break;
+      case 'all-living':
+        focusUnits = livingUnits;
+        break;
+      case 'all':
+        focusUnits = allUnits;
+        break;
+      case 'auto':
+      default:
+        if (selectedUnit) {
+          focusUnits = [selectedUnit];
+        } else {
+          focusUnits = livingUnits.length > 0 ? livingUnits : allUnits;
+        }
+        break;
+    }
+
+    if (focusUnits.length === 0) {
+      focusUnits = allUnits;
+    }
+
+    const bounds = getUnitsBounds(focusUnits);
+    let minX = 0;
+    let minY = 0;
+    let maxX = WORLD_WIDTH;
+    let maxY = WORLD_HEIGHT;
+
+    if (bounds) {
+      minX = bounds.minX - AUTO_FIT_PADDING;
+      minY = bounds.minY - AUTO_FIT_PADDING;
+      maxX = bounds.maxX + AUTO_FIT_PADDING;
+      maxY = bounds.maxY + AUTO_FIT_PADDING;
+    }
+
+    let focusWidth = maxX - minX;
+    let focusHeight = maxY - minY;
+
+    if (focusWidth < AUTO_FIT_MIN_SIZE) {
+      const extra = (AUTO_FIT_MIN_SIZE - focusWidth) / 2;
+      minX -= extra;
+      maxX += extra;
+      focusWidth = AUTO_FIT_MIN_SIZE;
+    }
+
+    if (focusHeight < AUTO_FIT_MIN_SIZE) {
+      const extra = (AUTO_FIT_MIN_SIZE - focusHeight) / 2;
+      minY -= extra;
+      maxY += extra;
+      focusHeight = AUTO_FIT_MIN_SIZE;
+    }
+
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+
+    const desiredScale = Math.min(
+      canvasSize.width / focusWidth,
+      canvasSize.height / focusHeight
+    );
+    const nextZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, desiredScale / baseScale));
+    const nextPanX = canvasSize.width / 2 - centerX * baseScale * nextZoom;
+    const nextPanY = canvasSize.height / 2 - centerY * baseScale * nextZoom;
+
+    const { zoom, panX, panY } = targetViewRef.current;
+    const zoomDelta = Math.abs(zoom - nextZoom);
+    const panDelta = Math.abs(panX - nextPanX) + Math.abs(panY - nextPanY);
+    if (zoomDelta < 0.001 && panDelta < 0.5) {
+      return;
+    }
+
+    autoFitAppliedSizeRef.current = {
+      width: canvasSize.width,
+      height: canvasSize.height,
+    };
+    setTargetView({ zoom: nextZoom, panX: nextPanX, panY: nextPanY });
+  }, [
+    baseScale,
+    canvasSize.height,
+    canvasSize.width,
+    frameData,
+    focusMode,
+    selectedFaction,
+    selectedUnitId,
+    setTargetView,
+  ]);
+
+  useEffect(() => {
+    const prevSize = prevCanvasSizeRef.current;
+    if (prevSize.width === canvasSize.width && prevSize.height === canvasSize.height) {
+      return;
+    }
+
+    const autoFitSize = autoFitAppliedSizeRef.current;
+    if (
+      autoFitSize &&
+      autoFitSize.width === canvasSize.width &&
+      autoFitSize.height === canvasSize.height
+    ) {
+      prevCanvasSizeRef.current = canvasSize;
+      return;
+    }
+
+    const { zoom, panX, panY } = targetViewRef.current;
+    const prevBaseScale = getBaseScale(prevSize.width, prevSize.height);
+    const worldCenterX = (prevSize.width / 2 - panX) / (prevBaseScale * zoom);
+    const worldCenterY = (prevSize.height / 2 - panY) / (prevBaseScale * zoom);
+    const nextPanX = canvasSize.width / 2 - worldCenterX * baseScale * zoom;
+    const nextPanY = canvasSize.height / 2 - worldCenterY * baseScale * zoom;
+
+    prevCanvasSizeRef.current = canvasSize;
+    setTargetView({ zoom, panX: nextPanX, panY: nextPanY });
+  }, [baseScale, canvasSize, setTargetView]);
 
   const getCanvasPixelCoords = useCallback((clientX: number, clientY: number) => {
     const canvas = canvasRef.current;
@@ -54,10 +326,10 @@ function SimulationCanvas({
   const canvasToWorld = useCallback((canvasX: number, canvasY: number) => {
     const { zoom, panX, panY } = viewRef.current;
     return {
-      x: (canvasX - panX) / (BASE_SCALE * zoom),
-      y: (canvasY - panY) / (BASE_SCALE * zoom),
+      x: (canvasX - panX) / (baseScale * zoom),
+      y: (canvasY - panY) / (baseScale * zoom),
     };
-  }, []);
+  }, [baseScale]);
 
   const getWorldCoordinates = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const { x, y } = getCanvasPixelCoords(e.clientX, e.clientY);
@@ -96,17 +368,18 @@ function SimulationCanvas({
     e.preventDefault();
     const { x: canvasX, y: canvasY } = getCanvasPixelCoords(e.clientX, e.clientY);
     const { zoom } = viewRef.current;
+    lastManualInteractionRef.current = Date.now();
 
     const worldPos = canvasToWorld(canvasX, canvasY);
 
     const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
     const newZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom * zoomFactor));
 
-    const newPanX = canvasX - worldPos.x * BASE_SCALE * newZoom;
-    const newPanY = canvasY - worldPos.y * BASE_SCALE * newZoom;
+    const newPanX = canvasX - worldPos.x * baseScale * newZoom;
+    const newPanY = canvasY - worldPos.y * baseScale * newZoom;
 
-    updateView({ zoom: newZoom, panX: newPanX, panY: newPanY });
-  }, [canvasToWorld, getCanvasPixelCoords]);
+    setTargetView({ zoom: newZoom, panX: newPanX, panY: newPanY });
+  }, [baseScale, canvasToWorld, getCanvasPixelCoords, setTargetView]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     isPanningRef.current = true;
@@ -123,8 +396,11 @@ function SimulationCanvas({
     lastPosRef.current = pos;
 
     const { zoom, panX, panY } = viewRef.current;
-    updateView({ zoom, panX: panX + dx, panY: panY + dy });
-  }, [getCanvasPixelCoords]);
+    if (dx !== 0 || dy !== 0) {
+      lastManualInteractionRef.current = Date.now();
+    }
+    setTargetView({ zoom, panX: panX + dx, panY: panY + dy });
+  }, [getCanvasPixelCoords, setTargetView]);
 
   const handleMouseUpOrLeave = useCallback(() => {
     isPanningRef.current = false;
@@ -140,13 +416,17 @@ function SimulationCanvas({
     // Clear canvas
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = '#0f0f23';
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.fillRect(0, 0, canvasSize.width, canvasSize.height);
 
     if (!frameData) {
       ctx.fillStyle = '#6b7280';
       ctx.font = '16px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('Waiting for simulation data...', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+      ctx.fillText(
+        'Waiting for simulation data...',
+        canvasSize.width / 2,
+        canvasSize.height / 2
+      );
       return;
     }
 
@@ -154,18 +434,18 @@ function SimulationCanvas({
 
     // Apply pan/zoom (world space -> canvas)
     ctx.translate(panX, panY);
-    ctx.scale(BASE_SCALE * zoom, BASE_SCALE * zoom);
+    ctx.scale(baseScale * zoom, baseScale * zoom);
 
     // Draw grid
     ctx.strokeStyle = '#1f2937';
-    ctx.lineWidth = 1 / (BASE_SCALE * zoom);
+    ctx.lineWidth = 1 / (baseScale * zoom);
 
     // Determine visible world bounds for grid tiling
-    const invScale = 1 / (BASE_SCALE * zoom);
+    const invScale = 1 / (baseScale * zoom);
     const minWorldX = -panX * invScale;
     const minWorldY = -panY * invScale;
-    const maxWorldX = minWorldX + CANVAS_WIDTH * invScale;
-    const maxWorldY = minWorldY + CANVAS_HEIGHT * invScale;
+    const maxWorldX = minWorldX + canvasSize.width * invScale;
+    const maxWorldY = minWorldY + canvasSize.height * invScale;
 
     const gridStartX = Math.floor(minWorldX / 50) * 50;
     const gridEndX = Math.ceil(maxWorldX / 50) * 50;
@@ -187,7 +467,7 @@ function SimulationCanvas({
 
     // World border
     ctx.strokeStyle = '#374151';
-    ctx.lineWidth = 2 / (BASE_SCALE * zoom);
+    ctx.lineWidth = 2 / (baseScale * zoom);
     ctx.strokeRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
 
     // Draw main target
@@ -198,7 +478,7 @@ function SimulationCanvas({
     ctx.fillStyle = 'rgba(233, 69, 96, 0.3)';
     ctx.fill();
     ctx.strokeStyle = '#e94560';
-    ctx.lineWidth = 2 / (BASE_SCALE * zoom);
+    ctx.lineWidth = 2 / (baseScale * zoom);
     ctx.stroke();
 
     // Draw target cross
@@ -224,7 +504,7 @@ function SimulationCanvas({
         ctx.beginPath();
         ctx.arc(x, y, radius + 6, 0, Math.PI * 2);
         ctx.strokeStyle = '#e94560';
-        ctx.lineWidth = 3 / (BASE_SCALE * zoom);
+        ctx.lineWidth = 3 / (baseScale * zoom);
         ctx.stroke();
       }
 
@@ -232,7 +512,7 @@ function SimulationCanvas({
         ctx.beginPath();
         ctx.arc(x, y, unit.attackRange, 0, Math.PI * 2);
         ctx.strokeStyle = 'rgba(233, 69, 96, 0.3)';
-        ctx.lineWidth = 1 / (BASE_SCALE * zoom);
+        ctx.lineWidth = 1 / (baseScale * zoom);
         ctx.stroke();
       }
 
@@ -246,7 +526,7 @@ function SimulationCanvas({
       ctx.fill();
 
       ctx.strokeStyle = unit.faction === 'Friendly' ? '#4ade80' : '#f87171';
-      ctx.lineWidth = 2 / (BASE_SCALE * zoom);
+      ctx.lineWidth = 2 / (baseScale * zoom);
       ctx.stroke();
 
       if (!unit.isDead) {
@@ -258,7 +538,7 @@ function SimulationCanvas({
           y + unit.forward.y * fwdLength
         );
         ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 2 / (BASE_SCALE * zoom);
+        ctx.lineWidth = 2 / (baseScale * zoom);
         ctx.stroke();
       }
 
@@ -292,7 +572,7 @@ function SimulationCanvas({
           unit.currentDestination.y
         );
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-        ctx.lineWidth = 1 / (BASE_SCALE * zoom);
+        ctx.lineWidth = 1 / (baseScale * zoom);
         ctx.stroke();
         ctx.setLineDash([]);
       }
@@ -302,7 +582,7 @@ function SimulationCanvas({
 
     frameData.enemyUnits.forEach(drawUnit);
     frameData.friendlyUnits.forEach(drawUnit);
-  }, [frameData, selectedUnitId, selectedFaction, view]);
+  }, [baseScale, canvasSize.height, canvasSize.width, frameData, selectedUnitId, selectedFaction, view]);
 
   return (
     <canvas

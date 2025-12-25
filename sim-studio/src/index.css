@@ -686,6 +686,24 @@ button {
   min-width: 80px;
 }
 
+.control-label {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 200px;
+  font-size: 0.75rem;
+  color: #cbd5f5;
+}
+
+.controls select {
+  background-color: #0f0f23;
+  border: 1px solid #0f3460;
+  color: #eaeaea;
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem;
+}
+
 /* Connection Status */
 .connection-status {
   display: flex;

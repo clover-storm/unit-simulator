@@ -1,3 +1,5 @@
+import { CameraFocusMode } from '../types';
+
 interface SimulationControlsProps {
   onPlayPause: () => void;
   onStep: () => void;
@@ -8,6 +10,8 @@ interface SimulationControlsProps {
   onReset: () => void;
   isConnected: boolean;
   isPlaying: boolean;
+  focusMode: CameraFocusMode;
+  onFocusModeChange: (mode: CameraFocusMode) => void;
   disabled?: boolean;  // True if user doesn't have control permission
 }
 
@@ -21,6 +25,8 @@ function SimulationControls({
   onReset,
   isConnected,
   isPlaying,
+  focusMode,
+  onFocusModeChange,
   disabled = false,
 }: SimulationControlsProps) {
   const isDisabled = !isConnected || disabled;
@@ -75,6 +81,23 @@ function SimulationControls({
         >
           Seek
         </button>
+      </div>
+      <div className="controls" style={{ marginTop: '0.75rem' }}>
+        <label className="control-label">
+          Camera Focus
+          <select
+            value={focusMode}
+            onChange={(e) => onFocusModeChange(e.target.value as CameraFocusMode)}
+            disabled={!isConnected}
+          >
+            <option value="auto">Auto (Selected &gt; Living)</option>
+            <option value="selected">Selected Only</option>
+            <option value="all-living">All Living</option>
+            <option value="friendly">Friendly</option>
+            <option value="enemy">Enemy</option>
+            <option value="all">All Units</option>
+          </select>
+        </label>
       </div>
     </div>
   );
