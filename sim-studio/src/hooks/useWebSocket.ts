@@ -18,7 +18,10 @@ export interface UseWebSocketResult {
 }
 
 interface UseWebSocketOptions {
-  sessionId?: string | null;  // null = create new session, string = join existing
+  // undefined = don't connect (waiting for session selection)
+  // null = create new session
+  // string = join existing session
+  sessionId?: string | null;
 }
 
 export function useWebSocket(
@@ -41,11 +44,20 @@ export function useWebSocket(
   const reconnectAttempts = useRef(0);
 
   // Build WebSocket URL based on session option
-  const wsUrl = options.sessionId
-    ? `${baseUrl}/${options.sessionId}`
-    : `${baseUrl}/new`;
+  // undefined = don't connect, null = create new session, string = join existing
+  const wsUrl = options.sessionId === undefined
+    ? null  // Don't connect when sessionId is undefined
+    : options.sessionId === null
+      ? `${baseUrl}/new`
+      : `${baseUrl}/${options.sessionId}`;
 
   const connect = useCallback(() => {
+    // Don't connect if wsUrl is null (sessionId is undefined)
+    if (!wsUrl) {
+      setConnectionStatus('disconnected');
+      return;
+    }
+
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       return;
     }

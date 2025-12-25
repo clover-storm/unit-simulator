@@ -260,6 +260,120 @@ public enum SessionCleanupPolicy
 }
 ```
 
+### 세션 생명주기 관리 규칙
+
+#### 1. LastActivityAt 업데이트 규칙
+
+`LastActivityAt`은 세션의 마지막 활동 시간을 추적하여 유휴 세션 정리에 사용됩니다.
+
+**업데이트 시점:**
+- ✅ 클라이언트가 명령을 전송할 때
+- ✅ 시뮬레이션 상태가 변경될 때 (start, stop, reset 등)
+- ✅ 프레임이 진행될 때 (running 상태)
+- ❌ 클라이언트가 연결 해제될 때 (업데이트하지 않음)
+
+```csharp
+// 올바른 구현
+public void RemoveClient(SessionClient client)
+{
+    lock (_clientsLock)
+    {
+        _clients.Remove(client);
+    }
+
+    // 클라이언트 제거 시 LastActivityAt 업데이트 금지
+    // 이유: 세션이 비워진 후 즉시 정리될 수 있도록
+
+    if (ClientCount == 0)
+    {
+        _emptyAt = DateTime.UtcNow;  // 별도 타임스탬프로 추적
+    }
+}
+```
+
+#### 2. 유휴 세션 정리 조건
+
+세션은 다음 조건을 **모두** 만족할 때 정리됩니다:
+
+| 조건 | 설명 |
+|------|------|
+| `ClientCount == 0` | 연결된 클라이언트가 없음 |
+| `EmptyDuration > IdleTimeout` | 빈 상태로 타임아웃 초과 |
+
+```csharp
+// 정리 로직
+var expiredSessions = _sessions
+    .Where(kvp =>
+        kvp.Value.ClientCount == 0 &&
+        kvp.Value.EmptyAt.HasValue &&
+        (now - kvp.Value.EmptyAt.Value) > Options.IdleTimeout)
+    .Select(kvp => kvp.Key)
+    .ToList();
+```
+
+#### 3. IdleTimeout 설정
+
+| 환경 | 권장값 | 설명 |
+|------|--------|------|
+| 개발 | 5분 | 빠른 리소스 회수 |
+| 프로덕션 | 30분 | 재연결 여유 시간 |
+
+#### 4. 클라이언트 View 전환 시 동작
+
+시뮬레이터 ↔ 데이터 에디터 전환 시 WebSocket 연결 관리:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  View 전환 시나리오                                          │
+│  ─────────────────────────────────────────────────────────  │
+│                                                             │
+│  [시뮬레이터] → [데이터 에디터]                               │
+│  1. WebSocket 연결 즉시 종료                                 │
+│  2. 세션의 ClientCount 감소                                  │
+│  3. ClientCount == 0이면 EmptyAt 설정                        │
+│                                                             │
+│  [데이터 에디터] → [시뮬레이터]                               │
+│  1. SessionSelector 표시                                     │
+│  2. 기존 세션 선택 시: 해당 세션에 재연결                      │
+│  3. 새 세션 선택 시: 새 세션 생성                             │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**클라이언트 구현 규칙:**
+```typescript
+// useWebSocket.ts
+// sessionId가 undefined일 때는 연결하지 않음 (대기 상태)
+// sessionId가 null일 때는 /ws/new로 새 세션 생성
+// sessionId가 string일 때는 /ws/{sessionId}로 기존 세션 연결
+
+const wsUrl = options.sessionId === undefined
+  ? null  // 연결하지 않음
+  : options.sessionId === null
+    ? `${baseUrl}/new`
+    : `${baseUrl}/${options.sessionId}`;
+```
+
+#### 5. 세션 상태 전이도
+
+```
+┌─────────┐     클라이언트 연결      ┌─────────┐
+│ Created │ ────────────────────▶ │ Active  │
+└─────────┘                        └────┬────┘
+                                        │
+                    마지막 클라이언트 해제  │
+                                        ▼
+                                   ┌─────────┐
+                                   │  Empty  │
+                                   └────┬────┘
+                                        │
+                         IdleTimeout 경과 │
+                                        ▼
+                                   ┌─────────┐
+                                   │ Removed │
+                                   └─────────┘
+```
+
 ## 구현 우선순위
 
 ### Phase 1: 기본 멀티 세션

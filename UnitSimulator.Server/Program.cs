@@ -60,8 +60,8 @@ public class Program
         var sessionOptions = new SessionManagerOptions
         {
             MaxSessions = 100,
-            IdleTimeout = TimeSpan.FromMinutes(30),
-            CleanupIntervalMs = 60_000
+            IdleTimeout = TimeSpan.FromMinutes(5),  // 5 minutes for dev, 30 for prod
+            CleanupIntervalMs = 60_000  // 1 minute
         };
 
         using var server = new WebSocketServer(port, sessionOptions);

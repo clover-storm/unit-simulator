@@ -38,6 +38,13 @@ public class SimulationSession : IDisposable
     public DateTime LastActivityAt { get; private set; }
 
     /// <summary>
+    /// When the session became empty (no clients). Null if clients are connected.
+    /// Used for idle session cleanup - sessions are cleaned up based on how long they've been empty,
+    /// not based on LastActivityAt.
+    /// </summary>
+    public DateTime? EmptyAt { get; private set; }
+
+    /// <summary>
     /// The client ID of the session owner.
     /// </summary>
     public string? OwnerClientId { get; private set; }
@@ -169,6 +176,9 @@ public class SimulationSession : IDisposable
             _clients.Add(client);
         }
 
+        // Clear EmptyAt when a client connects
+        EmptyAt = null;
+
         UpdateActivity();
         Console.WriteLine($"[Session {SessionId[..8]}] Client {clientId[..8]} joined as {role}. Total: {ClientCount}");
 
@@ -180,9 +190,11 @@ public class SimulationSession : IDisposable
     /// </summary>
     public void RemoveClient(SessionClient client)
     {
+        int remainingClients;
         lock (_clientsLock)
         {
             _clients.Remove(client);
+            remainingClients = _clients.Count;
         }
 
         // If owner disconnected
@@ -206,8 +218,15 @@ public class SimulationSession : IDisposable
             Console.WriteLine($"[Session {SessionId[..8]}] Owner disconnected. Session paused.");
         }
 
-        UpdateActivity();
-        Console.WriteLine($"[Session {SessionId[..8]}] Client {client.ClientId[..8]} left. Total: {ClientCount}");
+        // Set EmptyAt when session becomes empty (for idle cleanup)
+        // Do NOT update LastActivityAt here - this allows cleanup to happen sooner
+        if (remainingClients == 0)
+        {
+            EmptyAt = DateTime.UtcNow;
+            Console.WriteLine($"[Session {SessionId[..8]}] Session is now empty. EmptyAt set.");
+        }
+
+        Console.WriteLine($"[Session {SessionId[..8]}] Client {client.ClientId[..8]} left. Total: {remainingClients}");
     }
 
     /// <summary>

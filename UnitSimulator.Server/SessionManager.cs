@@ -110,6 +110,8 @@ public class SessionManager : IDisposable
 
     /// <summary>
     /// Cleans up idle sessions that have exceeded the timeout.
+    /// Uses EmptyAt (when session became empty) instead of LastActivityAt
+    /// to ensure sessions are cleaned up promptly after clients disconnect.
     /// </summary>
     public int CleanupIdleSessions()
     {
@@ -119,7 +121,8 @@ public class SessionManager : IDisposable
             var expiredSessions = _sessions
                 .Where(kvp =>
                     kvp.Value.ClientCount == 0 &&
-                    (now - kvp.Value.LastActivityAt) > Options.IdleTimeout)
+                    kvp.Value.EmptyAt.HasValue &&
+                    (now - kvp.Value.EmptyAt.Value) > Options.IdleTimeout)
                 .Select(kvp => kvp.Key)
                 .ToList();
 
