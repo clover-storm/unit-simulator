@@ -39,9 +39,9 @@ public class SimulatorCore
     private List<Unit> _enemySquad = new();
     private readonly SquadBehavior _squadBehavior = new();
     private readonly EnemyBehavior _enemyBehavior = new();
+    private readonly CombatSystem _combatSystem = new();
     private bool _isInitialized = false;
     private bool _isRunning = false;
-    private readonly List<UnitSpawnRequest> _pendingSpawns = new();
 
     // Pathfinding System
     private PathfindingGrid? _pathfindingGrid;
@@ -301,6 +301,7 @@ public class SimulatorCore
 
     /// <summary>
     /// Executes a single simulation step and returns the frame data.
+    /// Uses 2-Phase Update pattern for deterministic behavior.
     /// </summary>
     public FrameData Step(ISimulatorCallbacks? callbacks = null)
     {
@@ -310,18 +311,23 @@ public class SimulatorCore
         }
 
         callbacks ??= new DefaultSimulatorCallbacks();
+        var events = new FrameEvents();
 
         // Process queued commands first
         ProcessCommands(callbacks);
 
-        // Update enemy behavior
-        _enemyBehavior.UpdateEnemySquad(this, _enemySquad, _friendlySquad);
+        // ════════════════════════════════════════════════════════════════════════
+        // Phase 1: Collect - 모든 유닛 틱, 이벤트 수집 (HP 변경 없음)
+        // ════════════════════════════════════════════════════════════════════════
+        _enemyBehavior.UpdateEnemySquad(this, _enemySquad, _friendlySquad, events);
+        _squadBehavior.UpdateFriendlySquad(this, _friendlySquad, _enemySquad, _mainTarget, events);
 
-        // Update friendly behavior
-        _squadBehavior.UpdateFriendlySquad(this, _friendlySquad, _enemySquad, _mainTarget);
-
-        // Apply delayed spawns after combat resolution
-        ApplyPendingSpawns(callbacks);
+        // ════════════════════════════════════════════════════════════════════════
+        // Phase 2: Apply - 이벤트 일괄 적용
+        // ════════════════════════════════════════════════════════════════════════
+        ApplyDamageEvents(events);
+        ProcessDeaths(events, callbacks);
+        ApplySpawnEvents(events, callbacks);
 
         // Generate frame data
         var frameData = FrameData.FromSimulationState(
@@ -477,28 +483,107 @@ public class SimulatorCore
         return true;
     }
 
+    // ════════════════════════════════════════════════════════════════════════
+    // Phase 2: Apply - 이벤트 일괄 적용 메서드
+    // ════════════════════════════════════════════════════════════════════════
+
     /// <summary>
-    /// Processes combat results such as spawn requests after an attack.
+    /// 수집된 모든 피해 이벤트를 적용합니다. (Phase 2 Step 1)
+    /// HP만 감소시키고 사망 처리는 하지 않습니다.
     /// </summary>
-    public void ProcessAttackResult(UnitFaction attackerFaction, AttackResult result)
+    private void ApplyDamageEvents(FrameEvents events)
     {
-        if (result == null) return;
-        if (result.SpawnRequests.Any())
+        foreach (var damage in events.Damages)
         {
-            _pendingSpawns.AddRange(result.SpawnRequests);
+            if (damage.Target.IsDead) continue;
+            damage.Target.TakeDamage(damage.Amount);
         }
     }
 
-    private void ApplyPendingSpawns(ISimulatorCallbacks callbacks)
+    /// <summary>
+    /// 사망 판정 및 Death 어빌리티를 처리합니다. (Phase 2 Step 2)
+    /// 큐 기반으로 연쇄 사망을 처리합니다.
+    /// </summary>
+    private void ProcessDeaths(FrameEvents events, ISimulatorCallbacks callbacks)
     {
-        if (!_pendingSpawns.Any()) return;
+        var deathQueue = new Queue<Unit>();
+        var processed = new HashSet<Unit>();
 
-        foreach (var spawn in _pendingSpawns)
+        // 초기 사망 유닛 수집 (HP <= 0 && !IsDead)
+        foreach (var unit in GetAllLivingUnits())
+        {
+            if (unit.HP <= 0)
+            {
+                deathQueue.Enqueue(unit);
+            }
+        }
+
+        // 큐가 빌 때까지 처리 (연쇄 사망 포함)
+        while (deathQueue.Count > 0)
+        {
+            var dead = deathQueue.Dequeue();
+            if (processed.Contains(dead)) continue;
+
+            // 사망 처리
+            dead.IsDead = true;
+            dead.Velocity = System.Numerics.Vector2.Zero;
+            if (dead.Target != null) dead.Target.ReleaseSlot(dead);
+            processed.Add(dead);
+
+            callbacks.OnUnitEvent(new UnitEventData
+            {
+                EventType = UnitEventType.Died,
+                UnitId = dead.Id,
+                Faction = dead.Faction,
+                FrameNumber = _currentFrame,
+                Position = dead.Position
+            });
+
+            // DeathSpawn 처리
+            var spawns = _combatSystem.CreateDeathSpawnRequests(dead);
+            events.AddSpawns(spawns);
+
+            // DeathDamage 처리 → 추가 사망 유닛 큐에 추가
+            var opposingUnits = GetOpposingUnits(dead.Faction);
+            var newlyDead = _combatSystem.ApplyDeathDamage(dead, opposingUnits);
+            foreach (var killed in newlyDead)
+            {
+                if (!processed.Contains(killed))
+                {
+                    deathQueue.Enqueue(killed);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// 수집된 스폰 요청을 적용합니다. (Phase 2 Step 3)
+    /// </summary>
+    private void ApplySpawnEvents(FrameEvents events, ISimulatorCallbacks callbacks)
+    {
+        foreach (var spawn in events.Spawns)
         {
             InjectSpawnedUnit(spawn, callbacks);
         }
+    }
 
-        _pendingSpawns.Clear();
+    /// <summary>
+    /// 살아있는 모든 유닛을 반환합니다.
+    /// </summary>
+    private IEnumerable<Unit> GetAllLivingUnits()
+    {
+        return _friendlySquad.Where(u => !u.IsDead)
+            .Concat(_enemySquad.Where(u => !u.IsDead));
+    }
+
+    /// <summary>
+    /// 지정된 팩션의 반대편 유닛 목록을 반환합니다.
+    /// </summary>
+    private List<Unit> GetOpposingUnits(UnitFaction faction)
+    {
+        return faction == UnitFaction.Friendly
+            ? _enemySquad.Where(u => !u.IsDead).ToList()
+            : _friendlySquad.Where(u => !u.IsDead).ToList();
     }
 
     public Unit InjectUnit(

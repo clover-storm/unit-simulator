@@ -15,8 +15,9 @@ public class EnemyBehaviorTests
         var friendlies = new List<Unit>();
 
         var simulator = SimulationTestFactory.CreateInitializedCore(hasMoreWaves: false);
+        var events = new FrameEvents();
 
-        behavior.UpdateEnemySquad(simulator, enemies, friendlies);
+        behavior.UpdateEnemySquad(simulator, enemies, friendlies, events);
 
         Assert.Equal(new Vector2(100, 100), enemy.Position);
         Assert.Null(enemy.Target);

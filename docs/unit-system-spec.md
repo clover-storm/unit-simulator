@@ -487,9 +487,18 @@ public class Unit
 ## 9. Implementation Roadmap
 
 ### 9.0 Current Implementation Status (Core)
+
+**완료:**
 - Phase 1: Ground/Air 레이어, TargetType 필터링, 레이어별 충돌/분리 로직 구현 완료.
 - Phase 2 (부분): SplashDamage, Shield HP, ChargeAttack(속도/배율 적용), DeathSpawn/DeathDamage(사망 시 스폰/폭발, 스폰은 현재 기본 근접 스탯으로 생성) 구현 및 직렬화 반영.
-- 미구현/추가 예정: Ability 데이터 기반 스폰 유닛 정의 로딩, Status Effects/Buildings/Spells(Phase 3~5), Projectile/Factory 파이프라인.
+
+**진행 예정:**
+- **2-Phase Update 아키텍처 적용** (Section 11 참조): 즉시 적용 방식에서 이벤트 수집 후 일괄 적용 방식으로 전환. 순서 독립성 및 연쇄 사망 처리 개선.
+
+**미구현:**
+- Ability 데이터 기반 스폰 유닛 정의 로딩
+- Status Effects/Buildings/Spells (Phase 3~5)
+- Projectile/Factory 파이프라인
 
 ### Phase 1: Foundation (기초)
 
@@ -718,7 +727,265 @@ public class Unit
 
 ---
 
-## 11. References
+## 11. Simulation Loop Architecture
+
+### 11.1 설계 원칙
+
+시뮬레이션의 결정론적(deterministic) 동작과 순서 독립성을 보장하기 위해 **2-Phase Update** 패턴을 적용합니다.
+
+**핵심 원칙:**
+- 업데이트 도중 유닛 상태(HP, IsDead 등)를 직접 변경하지 않음
+- 모든 공격/피해 결과는 이벤트로 수집 후 일괄 적용
+- 사망 판정은 모든 유닛 틱이 완료된 후 수행
+
+### 11.2 문제점: 즉시 적용 방식
+
+```
+[기존 방식 - 문제점]
+Frame N:
+  Enemy A 업데이트 → Friendly B 공격 → B.HP 즉시 감소 → B 사망
+  Enemy C 업데이트 → B를 타겟으로 선택하려 했으나 이미 사망
+  Friendly B 업데이트 → 자신의 턴이 오기 전에 이미 사망 처리됨
+```
+
+**문제점:**
+1. **순서 의존성**: 먼저 업데이트되는 유닛이 유리함
+2. **동시 사망 불가**: A와 B가 서로 죽이는 경우, 먼저 처리된 쪽만 공격 성공
+3. **연쇄 효과 복잡**: DeathDamage로 인한 2차 사망 처리가 재귀적으로 발생
+4. **상태 불일치**: 같은 프레임 내에서 유닛이 살아있는지 여부가 시점에 따라 다름
+
+### 11.3 해결책: 2-Phase Update 패턴
+
+```
+[새로운 방식]
+Frame N:
+  ┌─ Phase 1: Collect (상태 변경 없음) ─────────────────┐
+  │  Enemy A 업데이트 → DamageEvent(A→B, 50) 생성       │
+  │  Enemy C 업데이트 → DamageEvent(C→B, 30) 생성       │
+  │  Friendly B 업데이트 → DamageEvent(B→A, 40) 생성    │
+  │  (모든 유닛이 프레임 시작 시점의 상태를 기준으로 행동)  │
+  └─────────────────────────────────────────────────────┘
+
+  ┌─ Phase 2: Apply (일괄 적용) ────────────────────────┐
+  │  1. 모든 DamageEvent 적용 → HP 감소                 │
+  │  2. HP <= 0 유닛 사망 판정                          │
+  │  3. 사망 유닛의 Death 어빌리티 처리 (연쇄 포함)       │
+  │  4. SpawnEvent 적용 → 유닛 생성                     │
+  └─────────────────────────────────────────────────────┘
+```
+
+### 11.4 FrameEvents 구조
+
+```csharp
+/// <summary>
+/// 프레임 내 발생하는 모든 이벤트를 수집하는 컨테이너
+/// </summary>
+public class FrameEvents
+{
+    public List<DamageEvent> Damages { get; } = new();
+    public List<SpawnRequest> Spawns { get; } = new();
+    public List<HealEvent> Heals { get; } = new();  // 향후 확장
+}
+
+public class DamageEvent
+{
+    public Unit Source { get; init; }      // 피해 원인 유닛
+    public Unit Target { get; init; }      // 피해 대상 유닛
+    public int Amount { get; init; }       // 피해량
+    public DamageType Type { get; init; }  // Normal, Splash, DeathDamage
+}
+
+public enum DamageType
+{
+    Normal,       // 일반 공격
+    Splash,       // 스플래시 피해
+    DeathDamage,  // 사망 시 폭발 피해
+    Spell         // 스펠 피해
+}
+```
+
+### 11.5 Phase 1: Collect
+
+모든 유닛이 **프레임 시작 시점의 상태**를 기준으로 행동을 결정합니다.
+
+```csharp
+public void UpdateFriendlySquad(..., FrameEvents events)
+{
+    foreach (var friendly in friendlies)
+    {
+        // 이동 처리 (상태 변경 허용 - Position, Velocity)
+        UpdateMovement(friendly);
+
+        // 공격 처리 (상태 변경 금지 - 이벤트만 생성)
+        if (CanAttack(friendly, friendly.Target))
+        {
+            int damage = friendly.GetEffectiveDamage();
+            events.Damages.Add(new DamageEvent
+            {
+                Source = friendly,
+                Target = friendly.Target,
+                Amount = damage,
+                Type = DamageType.Normal
+            });
+
+            // 스플래시 피해도 이벤트로 수집
+            if (friendly.HasAbility<SplashDamageData>())
+            {
+                CollectSplashDamage(friendly, damage, events);
+            }
+        }
+    }
+}
+```
+
+**Phase 1에서 허용되는 상태 변경:**
+- Position, Velocity (이동)
+- Forward (회전)
+- AttackCooldown (쿨다운 감소)
+- Target (타겟 변경)
+
+**Phase 1에서 금지되는 상태 변경:**
+- HP, ShieldHP
+- IsDead
+- 유닛 생성/제거
+
+### 11.6 Phase 2: Apply
+
+수집된 이벤트를 순차적으로 적용합니다.
+
+```csharp
+private void ApplyPhase(FrameEvents events)
+{
+    // Step 1: 모든 피해 적용 (HP 감소만, 사망 처리 X)
+    foreach (var damage in events.Damages)
+    {
+        if (damage.Target.IsDead) continue;  // 이미 죽은 유닛 스킵
+        damage.Target.TakeDamage(damage.Amount);
+    }
+
+    // Step 2: 사망 판정 및 Death 어빌리티 처리
+    ProcessDeaths(events);
+
+    // Step 3: 스폰 적용
+    foreach (var spawn in events.Spawns)
+    {
+        InjectSpawnedUnit(spawn);
+    }
+}
+```
+
+### 11.7 연쇄 사망 처리 (Queue 기반)
+
+Death 어빌리티(DeathDamage, DeathSpawn)로 인한 연쇄 사망을 **큐 기반**으로 처리합니다.
+
+```csharp
+private void ProcessDeaths(FrameEvents events)
+{
+    var deathQueue = new Queue<Unit>();
+    var processed = new HashSet<Unit>();
+
+    // 초기 사망 유닛 수집 (HP <= 0 && !IsDead)
+    foreach (var unit in GetAllUnits())
+    {
+        if (unit.HP <= 0 && !unit.IsDead)
+        {
+            deathQueue.Enqueue(unit);
+        }
+    }
+
+    // 큐가 빌 때까지 처리 (연쇄 사망 포함)
+    while (deathQueue.Count > 0)
+    {
+        var dead = deathQueue.Dequeue();
+        if (processed.Contains(dead)) continue;
+
+        dead.IsDead = true;
+        dead.Velocity = Vector2.Zero;
+        processed.Add(dead);
+
+        // DeathSpawn 처리
+        var deathSpawn = dead.GetAbility<DeathSpawnData>();
+        if (deathSpawn != null)
+        {
+            events.Spawns.AddRange(CreateSpawnRequests(dead, deathSpawn));
+        }
+
+        // DeathDamage 처리 → 추가 사망 유닛 큐에 추가
+        var deathDamage = dead.GetAbility<DeathDamageData>();
+        if (deathDamage != null)
+        {
+            foreach (var target in GetUnitsInRadius(dead.Position, deathDamage.Radius))
+            {
+                if (target.IsDead || target.Faction == dead.Faction) continue;
+                target.TakeDamage(deathDamage.Damage);
+
+                if (target.HP <= 0 && !processed.Contains(target))
+                {
+                    deathQueue.Enqueue(target);
+                }
+            }
+        }
+    }
+}
+```
+
+**흐름 예시:**
+```
+초기 사망: [A]
+  A 처리 → DeathDamage로 B 사망 → Queue: [B]
+  B 처리 → DeathDamage로 C, D 사망 → Queue: [C, D]
+  C 처리 → 추가 사망 없음 → Queue: [D]
+  D 처리 → DeathSpawn으로 E, F 생성 → Queue: []
+완료
+```
+
+### 11.8 SimulatorCore.Step() 구조
+
+```csharp
+public FrameData Step(ISimulatorCallbacks? callbacks = null)
+{
+    callbacks ??= new DefaultSimulatorCallbacks();
+    var events = new FrameEvents();
+
+    // 커맨드 처리 (스폰 명령 등)
+    ProcessCommands(callbacks);
+
+    // ════════════════════════════════════════════════════
+    // Phase 1: Collect - 모든 유닛 틱, 이벤트 수집
+    // ════════════════════════════════════════════════════
+    _enemyBehavior.UpdateEnemySquad(this, _enemySquad, _friendlySquad, events);
+    _squadBehavior.UpdateFriendlySquad(this, _friendlySquad, _enemySquad, _mainTarget, events);
+
+    // ════════════════════════════════════════════════════
+    // Phase 2: Apply - 이벤트 일괄 적용
+    // ════════════════════════════════════════════════════
+    ApplyDamageEvents(events);
+    ProcessDeaths(events);
+    ApplySpawnEvents(events, callbacks);
+
+    // 프레임 데이터 생성 및 반환
+    var frameData = GenerateFrameData();
+    callbacks.OnFrameGenerated(frameData);
+    _currentFrame++;
+
+    return frameData;
+}
+```
+
+### 11.9 이점
+
+| 항목 | 효과 |
+|------|------|
+| **순서 독립성** | 유닛 업데이트 순서와 무관하게 동일한 결과 |
+| **동시 사망 지원** | A→B, B→A 동시 공격 시 둘 다 피해 적용 |
+| **연쇄 처리 단순화** | 큐 기반으로 깊이 제한 없이 안전하게 처리 |
+| **디버깅 용이** | FrameEvents 로깅으로 프레임 내 모든 이벤트 추적 가능 |
+| **확장성** | HealEvent, BuffEvent 등 새 이벤트 타입 추가 용이 |
+| **리플레이** | 이벤트 기반으로 리플레이 시스템 구현 용이 |
+
+---
+
+## 12. References
 
 - [Clash Royale Wiki - Cards](https://clashroyale.fandom.com/wiki/Cards)
 - [Clash Royale Wiki - Troop Cards](https://clashroyale.fandom.com/wiki/Category:Troop_Cards)

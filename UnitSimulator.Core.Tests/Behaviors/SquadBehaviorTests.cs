@@ -16,8 +16,9 @@ public class SquadBehaviorTests
         var enemies = new List<Unit>();
 
         var simulator = SimulationTestFactory.CreateInitializedCore(hasMoreWaves: false);
+        var events = new FrameEvents();
 
-        behavior.UpdateFriendlySquad(simulator, friendlies, enemies, new Vector2(300, 300));
+        behavior.UpdateFriendlySquad(simulator, friendlies, enemies, new Vector2(300, 300), events);
 
         Assert.Equal(new Vector2(300, 300), leader.CurrentDestination);
     }

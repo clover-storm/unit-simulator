@@ -8,7 +8,7 @@ public class EnemyBehavior
     // Phase 2: 전투 시스템
     private readonly CombatSystem _combatSystem = new();
 
-    public void UpdateEnemySquad(SimulatorCore sim, List<Unit> enemies, List<Unit> friendlies)
+    public void UpdateEnemySquad(SimulatorCore sim, List<Unit> enemies, List<Unit> friendlies, FrameEvents events)
     {
         var livingFriendlies = friendlies.Where(f => !f.IsDead).ToList();
         if (!livingFriendlies.Any())
@@ -36,7 +36,7 @@ public class EnemyBehavior
             }
 
             UpdateEnemyTarget(enemy, livingFriendlies);
-            UpdateEnemyMovement(sim, enemy, enemies, livingFriendlies);
+            UpdateEnemyMovement(sim, enemy, enemies, livingFriendlies, events);
 
             enemy.Position += enemy.Velocity;
             enemy.UpdateRotation();
@@ -88,7 +88,7 @@ public class EnemyBehavior
         }
     }
 
-    private void UpdateEnemyMovement(SimulatorCore sim, Unit enemy, List<Unit> enemies, List<Unit> livingFriendlies)
+    private void UpdateEnemyMovement(SimulatorCore sim, Unit enemy, List<Unit> enemies, List<Unit> livingFriendlies, FrameEvents events)
     {
         if (enemy.Target == null)
         {
@@ -140,7 +140,7 @@ public class EnemyBehavior
         {
             enemy.Velocity = Vector2.Zero;
             enemy.ClearMovementPath();
-            TryAttack(sim, enemy, target, livingFriendlies);
+            TryAttack(enemy, target, livingFriendlies, events);
         }
         else
         {
@@ -191,7 +191,7 @@ public class EnemyBehavior
         }
     }
 
-    private void TryAttack(SimulatorCore sim, Unit attacker, Unit target, List<Unit> allFriendlies)
+    private void TryAttack(Unit attacker, Unit target, List<Unit> allFriendlies, FrameEvents events)
     {
         if (target.IsDead) return;
         float distanceToTarget = Vector2.Distance(attacker.Position, target.Position);
@@ -200,10 +200,8 @@ public class EnemyBehavior
             attacker.Velocity = Vector2.Zero;
             if (attacker.AttackCooldown <= 0)
             {
-                // Phase 2: CombatSystem을 통한 공격 처리 (SplashDamage, ChargeAttack 적용)
-                int damage = attacker.Damage > 0 ? attacker.GetEffectiveDamage() : GameConstants.ENEMY_ATTACK_DAMAGE;
-                var result = _combatSystem.PerformAttack(attacker, target, allFriendlies);
-                sim.ProcessAttackResult(attacker.Faction, result);
+                // 2-Phase Update: 이벤트만 수집, 실제 데미지는 Phase 2에서 적용
+                _combatSystem.CollectAttackEvents(attacker, target, allFriendlies, events);
                 attacker.AttackCooldown = GameConstants.ATTACK_COOLDOWN;
             }
         }

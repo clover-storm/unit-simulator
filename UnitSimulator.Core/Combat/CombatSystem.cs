@@ -7,49 +7,49 @@ namespace UnitSimulator;
 /// <summary>
 /// Phase 2: 전투 관련 로직을 처리하는 시스템
 /// SplashDamage, ChargeAttack, DeathSpawn 등의 능력을 처리
+///
+/// 2-Phase Update 패턴:
+/// - Phase 1 (Collect): CollectAttackEvents()로 DamageEvent 수집
+/// - Phase 2 (Apply): SimulatorCore에서 이벤트 일괄 적용 및 사망 처리
 /// </summary>
 public class CombatSystem
 {
+    // ════════════════════════════════════════════════════════════════════════
+    // Phase 1: Collect - 이벤트 수집 (상태 변경 없음)
+    // ════════════════════════════════════════════════════════════════════════
+
     /// <summary>
-    /// 공격을 수행하고 능력을 적용합니다.
+    /// 공격에 대한 피해 이벤트를 수집합니다. (Phase 1)
+    /// 실제 HP 변경은 Phase 2에서 일괄 적용됩니다.
     /// </summary>
     /// <param name="attacker">공격자</param>
     /// <param name="target">주 타겟</param>
     /// <param name="allEnemies">스플래시 대상이 될 수 있는 모든 적</param>
-    /// <returns>공격 결과 (사망 유닛, 스폰 요청)</returns>
-    public AttackResult PerformAttack(Unit attacker, Unit target, List<Unit> allEnemies)
+    /// <param name="events">이벤트를 수집할 컨테이너</param>
+    public void CollectAttackEvents(Unit attacker, Unit target, List<Unit> allEnemies, FrameEvents events)
     {
-        var result = new AttackResult();
-
-        if (target == null || target.IsDead) return result;
+        if (target == null || target.IsDead) return;
 
         int damage = attacker.GetEffectiveDamage();
 
-        // 주 타겟에 피해
-        bool wasAlive = !target.IsDead;
-        target.TakeDamage(damage);
-        if (wasAlive && target.IsDead)
-        {
-            HandleDeath(target, attacker, allEnemies, result);
-        }
+        // 주 타겟에 대한 피해 이벤트 추가
+        events.AddDamage(attacker, target, damage, DamageType.Normal);
 
-        // SplashDamage 처리
+        // SplashDamage 이벤트 수집
         var splashData = attacker.GetAbility<SplashDamageData>();
         if (splashData != null)
         {
-            ApplySplashDamage(attacker, target, damage, splashData, allEnemies, result);
+            CollectSplashDamage(attacker, target, damage, splashData, allEnemies, events);
         }
 
-        // 공격 후 처리 (돌진 상태 소비 등)
+        // 공격 후 처리 (돌진 상태 소비 등) - 이건 Phase 1에서 허용
         attacker.OnAttackPerformed();
-
-        return result;
     }
 
     /// <summary>
-    /// 스플래시 데미지를 적용합니다.
+    /// 스플래시 피해 이벤트를 수집합니다. (Phase 1)
     /// </summary>
-    private void ApplySplashDamage(Unit attacker, Unit mainTarget, int baseDamage, SplashDamageData splashData, List<Unit> allEnemies, AttackResult result)
+    private void CollectSplashDamage(Unit attacker, Unit mainTarget, int baseDamage, SplashDamageData splashData, List<Unit> allEnemies, FrameEvents events)
     {
         foreach (var enemy in allEnemies)
         {
@@ -69,15 +69,84 @@ public class CombatSystem
 
             if (splashDamage > 0)
             {
-                bool wasAlive = !enemy.IsDead;
-                enemy.TakeDamage(splashDamage);
-                if (wasAlive && enemy.IsDead)
-                {
-                    HandleDeath(enemy, attacker, allEnemies, result);
-                }
+                events.AddDamage(attacker, enemy, splashDamage, DamageType.Splash);
             }
         }
     }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // Phase 2: Death Processing - SimulatorCore에서 호출
+    // ════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// 사망한 유닛의 DeathSpawn 요청을 생성합니다. (Phase 2)
+    /// </summary>
+    public List<UnitSpawnRequest> CreateDeathSpawnRequests(Unit deadUnit)
+    {
+        var spawns = new List<UnitSpawnRequest>();
+
+        var deathSpawn = deadUnit.GetAbility<DeathSpawnData>();
+        if (deathSpawn == null || deathSpawn.SpawnCount <= 0) return spawns;
+
+        for (int i = 0; i < deathSpawn.SpawnCount; i++)
+        {
+            float angle = (2 * MathF.PI / deathSpawn.SpawnCount) * i;
+            Vector2 offset = new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * deathSpawn.SpawnRadius;
+            Vector2 spawnPos = deadUnit.Position + offset;
+
+            spawns.Add(new UnitSpawnRequest
+            {
+                UnitId = deathSpawn.SpawnUnitId,
+                Position = spawnPos,
+                Faction = deadUnit.Faction,
+                HP = deathSpawn.SpawnUnitHP
+            });
+        }
+
+        return spawns;
+    }
+
+    /// <summary>
+    /// 사망한 유닛의 DeathDamage를 주변 적에게 적용합니다. (Phase 2)
+    /// </summary>
+    /// <returns>DeathDamage로 사망한 유닛 목록</returns>
+    public List<Unit> ApplyDeathDamage(Unit deadUnit, List<Unit> enemies)
+    {
+        var newlyDead = new List<Unit>();
+
+        var deathDamage = deadUnit.GetAbility<DeathDamageData>();
+        if (deathDamage == null || deathDamage.Damage <= 0) return newlyDead;
+
+        foreach (var enemy in enemies)
+        {
+            if (enemy.IsDead) continue;
+
+            float distance = Vector2.Distance(deadUnit.Position, enemy.Position);
+            if (distance > deathDamage.Radius) continue;
+
+            bool wasAlive = !enemy.IsDead;
+            enemy.TakeDamage(deathDamage.Damage);
+
+            // 넉백 적용
+            if (deathDamage.KnockbackDistance > 0 && !enemy.IsDead)
+            {
+                Vector2 knockbackDir = Vector2.Normalize(enemy.Position - deadUnit.Position);
+                enemy.Position += knockbackDir * deathDamage.KnockbackDistance;
+            }
+
+            // TakeDamage()가 IsDead를 설정하므로, 이전 상태와 비교
+            if (wasAlive && enemy.IsDead)
+            {
+                newlyDead.Add(enemy);
+            }
+        }
+
+        return newlyDead;
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // 기타 유틸리티
+    // ════════════════════════════════════════════════════════════════════════
 
     /// <summary>
     /// 유닛의 돌진 상태를 업데이트합니다.
@@ -117,87 +186,6 @@ public class CombatSystem
         }
     }
 
-    /// <summary>
-    /// 유닛 사망 시 DeathSpawn 및 DeathDamage 처리
-    /// </summary>
-    /// <param name="deadUnit">사망한 유닛</param>
-    /// <param name="allEnemies">DeathDamage 대상이 될 수 있는 적 유닛들</param>
-    /// <returns>생성된 유닛 목록 (호출자가 시뮬레이터에 추가해야 함)</returns>
-    public (List<UnitSpawnRequest> spawns, List<Unit> killedByDeathDamage) ProcessDeath(Unit deadUnit, List<Unit> allEnemies)
-    {
-        var spawns = new List<UnitSpawnRequest>();
-        var killedUnits = new List<Unit>();
-
-        // DeathSpawn 처리
-        var deathSpawn = deadUnit.GetAbility<DeathSpawnData>();
-        if (deathSpawn != null && deathSpawn.SpawnCount > 0)
-        {
-            for (int i = 0; i < deathSpawn.SpawnCount; i++)
-            {
-                // 원형으로 배치
-                float angle = (2 * MathF.PI / deathSpawn.SpawnCount) * i;
-                Vector2 offset = new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * deathSpawn.SpawnRadius;
-                Vector2 spawnPos = deadUnit.Position + offset;
-
-                spawns.Add(new UnitSpawnRequest
-                {
-                    UnitId = deathSpawn.SpawnUnitId,
-                    Position = spawnPos,
-                    Faction = deadUnit.Faction,
-                    HP = deathSpawn.SpawnUnitHP
-                });
-            }
-        }
-
-        // DeathDamage 처리
-        var deathDamage = deadUnit.GetAbility<DeathDamageData>();
-        if (deathDamage != null && deathDamage.Damage > 0)
-        {
-            foreach (var enemy in allEnemies)
-            {
-                if (enemy.IsDead) continue;
-
-                float distance = Vector2.Distance(deadUnit.Position, enemy.Position);
-                if (distance <= deathDamage.Radius)
-                {
-                    bool wasAlive = !enemy.IsDead;
-                    enemy.TakeDamage(deathDamage.Damage);
-
-                    // 넉백 적용
-                    if (deathDamage.KnockbackDistance > 0 && !enemy.IsDead)
-                    {
-                        Vector2 knockbackDir = Vector2.Normalize(enemy.Position - deadUnit.Position);
-                        enemy.Position += knockbackDir * deathDamage.KnockbackDistance;
-                    }
-
-                    if (wasAlive && enemy.IsDead)
-                    {
-                        killedUnits.Add(enemy);
-                    }
-                }
-            }
-        }
-
-        return (spawns, killedUnits);
-    }
-
-    private void HandleDeath(Unit dead, Unit attacker, List<Unit> opposingUnits, AttackResult result)
-    {
-        result.KilledUnits.Add(dead);
-
-        // DeathSpawn / DeathDamage 처리
-        var (spawns, killedByDeathDamage) = ProcessDeath(dead, opposingUnits);
-        if (spawns.Any())
-        {
-            result.SpawnRequests.AddRange(spawns);
-        }
-
-        foreach (var killed in killedByDeathDamage)
-        {
-            if (result.KilledUnits.Contains(killed)) continue;
-            result.KilledUnits.Add(killed);
-        }
-    }
 }
 
 /// <summary>

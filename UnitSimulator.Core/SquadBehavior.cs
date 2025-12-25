@@ -16,7 +16,7 @@ public class SquadBehavior
     // Phase 2: 전투 시스템
     private readonly CombatSystem _combatSystem = new();
 
-    public void UpdateFriendlySquad(SimulatorCore sim, List<Unit> friendlies, List<Unit> enemies, Vector2 mainTarget)
+    public void UpdateFriendlySquad(SimulatorCore sim, List<Unit> friendlies, List<Unit> enemies, Vector2 mainTarget, FrameEvents events)
     {
         var livingEnemies = enemies.Where(e => !e.IsDead).ToList();
 
@@ -27,7 +27,7 @@ public class SquadBehavior
 
             if (engagedUnits.Count > 0)
             {
-                UpdateCombatBehavior(sim, friendlies, livingEnemies, engagedUnits);
+                UpdateCombatBehavior(sim, friendlies, livingEnemies, engagedUnits, events);
             }
 
             if (engagedUnits.Count < friendlies.Count)
@@ -125,14 +125,14 @@ public class SquadBehavior
         return false;
     }
 
-    private void UpdateCombatBehavior(SimulatorCore sim, List<Unit> friendlies, List<Unit> livingEnemies, HashSet<Unit>? engagedUnits = null)
+    private void UpdateCombatBehavior(SimulatorCore sim, List<Unit> friendlies, List<Unit> livingEnemies, HashSet<Unit>? engagedUnits, FrameEvents events)
     {
         foreach (var friendly in friendlies)
         {
             if (engagedUnits != null && !engagedUnits.Contains(friendly)) continue;
 
             UpdateUnitTarget(friendly, livingEnemies);
-            UpdateCombat(sim, friendly, livingEnemies, friendlies);
+            UpdateCombat(sim, friendly, livingEnemies, friendlies, events);
             friendly.Position += friendly.Velocity;
             friendly.UpdateRotation();
         }
@@ -162,7 +162,7 @@ public class SquadBehavior
             friendly.Target.ClaimBestSlot(friendly);
     }
 
-    private void UpdateCombat(SimulatorCore sim, Unit friendly, List<Unit> livingEnemies, List<Unit> friendlies)
+    private void UpdateCombat(SimulatorCore sim, Unit friendly, List<Unit> livingEnemies, List<Unit> friendlies, FrameEvents events)
     {
         if (friendly.Target == null)
         {
@@ -192,10 +192,8 @@ public class SquadBehavior
             friendly.CurrentDestination = friendly.Position;
             if (friendly.AttackCooldown <= 0)
             {
-                // Phase 2: CombatSystem을 통한 공격 처리 (SplashDamage, ChargeAttack 적용)
-                int damage = friendly.Damage > 0 ? friendly.GetEffectiveDamage() : GameConstants.FRIENDLY_ATTACK_DAMAGE;
-                var result = _combatSystem.PerformAttack(friendly, friendly.Target, livingEnemies);
-                sim.ProcessAttackResult(friendly.Faction, result);
+                // 2-Phase Update: 이벤트만 수집, 실제 데미지는 Phase 2에서 적용
+                _combatSystem.CollectAttackEvents(friendly, friendly.Target, livingEnemies, events);
                 friendly.AttackCooldown = GameConstants.ATTACK_COOLDOWN;
                 friendly.RecentAttacks.Add(new Tuple<Unit, int>(friendly.Target, 5));
             }
