@@ -1,4 +1,5 @@
 using System.Numerics;
+using UnitSimulator.Core.Contracts;
 
 namespace UnitSimulator;
 
@@ -75,30 +76,23 @@ public class GameSession
     // ════════════════════════════════════════════════════════════════════════
 
     /// <summary>
-    /// 기본 타워 배치로 게임 세션을 초기화합니다.
+    /// TowerSetup 목록을 기반으로 타워를 초기화합니다.
     /// </summary>
-    public void InitializeDefaultTowers()
+    /// <param name="towerSetups">타워 설정 목록</param>
+    public void InitializeTowers(List<TowerSetup> towerSetups)
     {
         FriendlyTowers.Clear();
         EnemyTowers.Clear();
 
         int towerId = 1;
-
-        // Friendly 타워
-        FriendlyTowers.Add(TowerStats.CreateKingTower(
-            towerId++, UnitFaction.Friendly, MapLayout.FriendlyKingPosition));
-        FriendlyTowers.Add(TowerStats.CreatePrincessTower(
-            towerId++, UnitFaction.Friendly, MapLayout.FriendlyPrincessLeftPosition));
-        FriendlyTowers.Add(TowerStats.CreatePrincessTower(
-            towerId++, UnitFaction.Friendly, MapLayout.FriendlyPrincessRightPosition));
-
-        // Enemy 타워
-        EnemyTowers.Add(TowerStats.CreateKingTower(
-            towerId++, UnitFaction.Enemy, MapLayout.EnemyKingPosition));
-        EnemyTowers.Add(TowerStats.CreatePrincessTower(
-            towerId++, UnitFaction.Enemy, MapLayout.EnemyPrincessLeftPosition));
-        EnemyTowers.Add(TowerStats.CreatePrincessTower(
-            towerId++, UnitFaction.Enemy, MapLayout.EnemyPrincessRightPosition));
+        foreach (var setup in towerSetups)
+        {
+            var tower = CreateTowerFromSetup(towerId++, setup);
+            if (setup.Faction == UnitFaction.Friendly)
+                FriendlyTowers.Add(tower);
+            else
+                EnemyTowers.Add(tower);
+        }
 
         // 상태 초기화
         ElapsedTime = 0f;
@@ -107,6 +101,51 @@ public class GameSession
         Result = GameResult.InProgress;
         WinConditionType = null;
         IsOvertime = false;
+    }
+
+    /// <summary>
+    /// 기본 타워 배치로 게임 세션을 초기화합니다.
+    /// (클래시 로열 표준 6타워 배치)
+    /// </summary>
+    public void InitializeDefaultTowers()
+    {
+        InitializeTowers(TowerSetupDefaults.ClashRoyaleStandard());
+    }
+
+    private Tower CreateTowerFromSetup(int id, TowerSetup setup)
+    {
+        // 위치 결정 (null이면 기본 위치)
+        Vector2 position = setup.Position ?? GetDefaultTowerPosition(setup.Type, setup.Faction);
+
+        // 타워 생성
+        Tower tower = setup.Type == TowerType.King
+            ? TowerStats.CreateKingTower(id, setup.Faction, position)
+            : TowerStats.CreatePrincessTower(id, setup.Faction, position);
+
+        // 선택적 오버라이드
+        if (setup.InitialHP.HasValue)
+        {
+            tower.CurrentHP = setup.InitialHP.Value;
+        }
+
+        if (setup.IsActivated.HasValue)
+        {
+            tower.IsActivated = setup.IsActivated.Value;
+        }
+
+        return tower;
+    }
+
+    private static Vector2 GetDefaultTowerPosition(TowerType type, UnitFaction faction)
+    {
+        return (type, faction) switch
+        {
+            (TowerType.King, UnitFaction.Friendly) => MapLayout.FriendlyKingPosition,
+            (TowerType.King, UnitFaction.Enemy) => MapLayout.EnemyKingPosition,
+            (TowerType.Princess, UnitFaction.Friendly) => MapLayout.FriendlyPrincessLeftPosition,
+            (TowerType.Princess, UnitFaction.Enemy) => MapLayout.EnemyPrincessLeftPosition,
+            _ => Vector2.Zero
+        };
     }
 
     public void LoadFromState(

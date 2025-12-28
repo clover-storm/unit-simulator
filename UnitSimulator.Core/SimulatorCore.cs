@@ -1,5 +1,6 @@
 using System.Numerics;
 using System.Linq;
+using UnitSimulator.Core.Contracts;
 using UnitSimulator.Core.Pathfinding;
 
 namespace UnitSimulator;
@@ -221,13 +222,11 @@ public class SimulatorCore
     // ================================================================================
 
     /// <summary>
-    /// Initializes the simulation with default settings.
-    /// Creates the friendly squad but does NOT spawn enemies.
-    /// Enemies should be spawned via commands from an external wave manager.
+    /// Initializes the simulation with default settings (Clash Royale standard).
     /// </summary>
     public void Initialize()
     {
-        Initialize(null);
+        Initialize(null, null);
     }
 
     /// <summary>
@@ -236,23 +235,44 @@ public class SimulatorCore
     /// <param name="referencePath">레퍼런스 데이터 디렉토리 경로 (null이면 기본 경로 사용)</param>
     public void Initialize(string? referencePath)
     {
+        Initialize(null, referencePath);
+    }
+
+    /// <summary>
+    /// InitialSetup을 사용하여 시뮬레이터를 초기화합니다.
+    /// </summary>
+    /// <param name="setup">초기 설정 (null이면 클래시 로열 표준 사용)</param>
+    /// <param name="referencePath">레퍼런스 데이터 경로 (null이면 기본 경로 사용)</param>
+    public void Initialize(InitialSetup? setup, string? referencePath = null)
+    {
         // Load reference data
         LoadReferences(referencePath);
+
+        // Use default setup if not provided
+        setup ??= InitialSetup.CreateClashRoyaleStandard();
 
         // Set main target on the right side of the simulation area
         _mainTarget = new Vector2(GameConstants.SIMULATION_WIDTH - 100, GameConstants.SIMULATION_HEIGHT / 2);
 
-        // Create the friendly squad
-        _friendlySquad = CreateFriendlySquad();
-
-        // Initialize empty enemy squad (will be populated via commands)
+        // Initialize empty squads
+        _friendlySquad = new List<Unit>();
         _enemySquad = new List<Unit>();
+
+        // Spawn initial units (empty in standard Clash Royale mode)
+        SpawnInitialUnits(setup.InitialUnits);
 
         // Initialize Pathfinding
         _pathfindingGrid = new PathfindingGrid(GameConstants.SIMULATION_WIDTH, GameConstants.SIMULATION_HEIGHT, GameConstants.UNIT_RADIUS);
         _pathfinder = new AStarPathfinder(_pathfindingGrid);
 
-        _gameSession.InitializeDefaultTowers();
+        // Initialize towers from setup
+        _gameSession.InitializeTowers(setup.Towers);
+
+        // Apply game time settings if provided
+        if (setup.GameTime != null)
+        {
+            _gameSession.MaxGameTime = setup.GameTime.MaxGameTime;
+        }
 
         _isInitialized = true;
         _currentFrame = 0;
@@ -274,29 +294,73 @@ public class SimulatorCore
         _referenceManager.LoadAll(referencePath, Console.WriteLine);
     }
 
-    private List<Unit> CreateFriendlySquad()
+    /// <summary>
+    /// 초기 유닛들을 스폰합니다.
+    /// </summary>
+    private void SpawnInitialUnits(List<UnitSpawnSetup> unitSetups)
     {
-        return new List<Unit>
+        foreach (var setup in unitSetups)
         {
-            CreateFriendlyUnit(new Vector2(200, GameConstants.SIMULATION_HEIGHT / 2 - 45), UnitRole.Melee),
-            CreateFriendlyUnit(new Vector2(200, GameConstants.SIMULATION_HEIGHT / 2 + 45), UnitRole.Melee),
-            CreateFriendlyUnit(new Vector2(120, GameConstants.SIMULATION_HEIGHT / 2 - 75), UnitRole.Ranged),
-            CreateFriendlyUnit(new Vector2(120, GameConstants.SIMULATION_HEIGHT / 2 + 75), UnitRole.Ranged)
-        };
+            for (int i = 0; i < setup.Count; i++)
+            {
+                Vector2 position = setup.Count > 1
+                    ? CalculateSpreadPosition(setup.Position, setup.SpawnRadius, i, setup.Count)
+                    : setup.Position;
+
+                SpawnUnitFromSetup(setup.UnitId, setup.Faction, position, setup.HP);
+            }
+        }
     }
 
-    private Unit CreateFriendlyUnit(Vector2 position, UnitRole role)
+    /// <summary>
+    /// 분산 배치 위치를 계산합니다.
+    /// </summary>
+    private static Vector2 CalculateSpreadPosition(Vector2 center, float radius, int index, int total)
     {
-        return new Unit(
-            position,
-            GameConstants.UNIT_RADIUS,
-            4.5f,
-            0.08f,
-            role,
-            GameConstants.FRIENDLY_HP,
-            GetNextFriendlyId(),
-            UnitFaction.Friendly
+        if (total <= 1) return center;
+
+        float angle = (float)(2 * Math.PI * index / total);
+        return new Vector2(
+            center.X + radius * (float)Math.Cos(angle),
+            center.Y + radius * (float)Math.Sin(angle)
         );
+    }
+
+    /// <summary>
+    /// 설정에서 유닛을 생성합니다.
+    /// </summary>
+    private void SpawnUnitFromSetup(string unitId, UnitFaction faction, Vector2 position, int? hpOverride)
+    {
+        var unitRef = _referenceManager?.Units?.Get(unitId);
+        int id = faction == UnitFaction.Friendly ? GetNextFriendlyId() : GetNextEnemyId();
+
+        Unit unit;
+        if (unitRef != null)
+        {
+            unit = unitRef.CreateUnit(unitId, id, faction, position);
+            if (hpOverride.HasValue)
+            {
+                unit.HP = hpOverride.Value;
+            }
+        }
+        else
+        {
+            // Fallback: create default unit
+            unit = new Unit(
+                position,
+                GameConstants.UNIT_RADIUS,
+                4.0f,
+                0.1f,
+                UnitRole.Melee,
+                hpOverride ?? 100,
+                id,
+                faction,
+                unitId: unitId
+            );
+        }
+
+        var squad = faction == UnitFaction.Friendly ? _friendlySquad : _enemySquad;
+        squad.Add(unit);
     }
 
     private int GetNextFriendlyId() => ++_nextFriendlyId;
