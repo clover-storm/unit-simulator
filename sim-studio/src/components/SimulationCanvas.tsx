@@ -11,9 +11,9 @@ interface SimulationCanvasProps {
 }
 
 const DEFAULT_CANVAS_WIDTH = 1200;
-const DEFAULT_CANVAS_HEIGHT = 500;
-const WORLD_WIDTH = 1200;
-const WORLD_HEIGHT = 720;
+const DEFAULT_CANVAS_HEIGHT = 800;
+const WORLD_WIDTH = 3200;  // Match GameConstants.SIMULATION_WIDTH
+const WORLD_HEIGHT = 5100; // Match GameConstants.SIMULATION_HEIGHT
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 3;
 const AUTO_FIT_PADDING = 60;
@@ -356,9 +356,10 @@ function SimulationCanvas({
 
   const canvasToWorld = useCallback((canvasX: number, canvasY: number) => {
     const { zoom, panX, panY } = viewRef.current;
+    const screenY = (canvasY - panY) / (baseScale * zoom);
     return {
       x: (canvasX - panX) / (baseScale * zoom),
-      y: (canvasY - panY) / (baseScale * zoom),
+      y: WORLD_HEIGHT - screenY,  // Flip Y back to game coordinates
     };
   }, [baseScale]);
 
@@ -407,7 +408,8 @@ function SimulationCanvas({
     const newZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom * zoomFactor));
 
     const newPanX = canvasX - worldPos.x * baseScale * newZoom;
-    const newPanY = canvasY - worldPos.y * baseScale * newZoom;
+    // Use flipped Y for screen position calculation
+    const newPanY = canvasY - (WORLD_HEIGHT - worldPos.y) * baseScale * newZoom;
 
     setTargetView({ zoom: newZoom, panX: newPanX, panY: newPanY });
   }, [baseScale, canvasToWorld, getCanvasPixelCoords, setTargetView]);
@@ -478,6 +480,9 @@ function SimulationCanvas({
     ctx.translate(panX, panY);
     ctx.scale(baseScale * zoom, baseScale * zoom);
 
+    // Helper to flip Y coordinate (game Y=0 is bottom, screen Y=0 is top)
+    const flipY = (y: number) => WORLD_HEIGHT - y;
+
     // Draw grid
     ctx.strokeStyle = '#1f2937';
     ctx.lineWidth = 1 / (baseScale * zoom);
@@ -514,7 +519,7 @@ function SimulationCanvas({
 
     // Draw main target
     const targetX = frameData.mainTarget.x;
-    const targetY = frameData.mainTarget.y;
+    const targetY = flipY(frameData.mainTarget.y);
     ctx.beginPath();
     ctx.arc(targetX, targetY, 15, 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(233, 69, 96, 0.3)';
@@ -531,11 +536,80 @@ function SimulationCanvas({
     ctx.lineTo(targetX, targetY + 10);
     ctx.stroke();
 
+    // Draw towers
+    const drawTower = (tower: { id: number; type: string; faction: string; position: { x: number; y: number }; radius: number; attackRange: number; maxHP: number; currentHP: number; isActivated: boolean }) => {
+      const x = tower.position.x;
+      const y = flipY(tower.position.y);
+      const isKing = tower.type === 'King';
+      const size = isKing ? 80 : 60; // King towers are larger
+      const halfSize = size / 2;
+
+      // Tower base color based on faction
+      const baseColor = tower.faction === 'Friendly' ? '#3b82f6' : '#ef4444';
+      const lightColor = tower.faction === 'Friendly' ? '#60a5fa' : '#f87171';
+
+      // Draw attack range (subtle)
+      if (tower.isActivated) {
+        ctx.beginPath();
+        ctx.arc(x, y, tower.attackRange, 0, Math.PI * 2);
+        ctx.strokeStyle = tower.faction === 'Friendly' ? 'rgba(59, 130, 246, 0.2)' : 'rgba(239, 68, 68, 0.2)';
+        ctx.lineWidth = 2 / (baseScale * zoom);
+        ctx.stroke();
+      }
+
+      // Draw tower body (rounded rectangle)
+      ctx.beginPath();
+      const cornerRadius = 8;
+      ctx.roundRect(x - halfSize, y - halfSize, size, size, cornerRadius);
+      ctx.fillStyle = baseColor;
+      ctx.fill();
+      ctx.strokeStyle = lightColor;
+      ctx.lineWidth = 3 / (baseScale * zoom);
+      ctx.stroke();
+
+      // Draw tower icon/symbol
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `bold ${isKing ? 28 : 22}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(isKing ? '♔' : '♜', x, y);
+
+      // Draw health bar
+      const healthBarWidth = size;
+      const healthBarHeight = 8;
+      const healthBarY = y + halfSize + 8;
+      const healthPercent = tower.currentHP / tower.maxHP;
+
+      // Health bar background
+      ctx.fillStyle = '#1f2937';
+      ctx.fillRect(x - healthBarWidth / 2, healthBarY, healthBarWidth, healthBarHeight);
+
+      // Health bar fill
+      const healthColor = healthPercent > 0.5 ? '#22c55e' : healthPercent > 0.25 ? '#eab308' : '#ef4444';
+      ctx.fillStyle = healthColor;
+      ctx.fillRect(x - healthBarWidth / 2, healthBarY, healthBarWidth * healthPercent, healthBarHeight);
+
+      // Health bar border
+      ctx.strokeStyle = '#374151';
+      ctx.lineWidth = 1 / (baseScale * zoom);
+      ctx.strokeRect(x - healthBarWidth / 2, healthBarY, healthBarWidth, healthBarHeight);
+
+      // Draw HP text
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `${10}px sans-serif`;
+      ctx.fillText(`${tower.currentHP}/${tower.maxHP}`, x, healthBarY + healthBarHeight + 12);
+    };
+
+    // Draw all towers (friendly first, then enemy)
+    frameData.friendlyTowers?.forEach(drawTower);
+    frameData.enemyTowers?.forEach(drawTower);
+
     // Draw units
+    const MIN_DISPLAY_RADIUS = 20; // Minimum radius for visibility
     const drawUnit = (unit: UnitStateData) => {
       const x = unit.position.x;
-      const y = unit.position.y;
-      const radius = unit.radius;
+      const y = flipY(unit.position.y);
+      const radius = Math.max(unit.radius, MIN_DISPLAY_RADIUS); // Ensure minimum size
       const isSelected = unit.id === selectedUnitId && unit.faction === selectedFaction;
 
       if (unit.isDead) {
@@ -544,17 +618,17 @@ function SimulationCanvas({
 
       if (isSelected) {
         ctx.beginPath();
-        ctx.arc(x, y, radius + 6, 0, Math.PI * 2);
-        ctx.strokeStyle = '#e94560';
-        ctx.lineWidth = 3 / (baseScale * zoom);
+        ctx.arc(x, y, radius + 8, 0, Math.PI * 2);
+        ctx.strokeStyle = '#fbbf24'; // Yellow selection ring
+        ctx.lineWidth = 4 / (baseScale * zoom);
         ctx.stroke();
       }
 
       if (isSelected && !unit.isDead) {
         ctx.beginPath();
         ctx.arc(x, y, unit.attackRange, 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(233, 69, 96, 0.3)';
-        ctx.lineWidth = 1 / (baseScale * zoom);
+        ctx.strokeStyle = 'rgba(251, 191, 36, 0.3)';
+        ctx.lineWidth = 2 / (baseScale * zoom);
         ctx.stroke();
       }
 
@@ -568,42 +642,47 @@ function SimulationCanvas({
         ctx.drawImage(icon, 0, 0, size, size);
         ctx.restore();
       } else {
+        // Draw unit circle with bright colors
         ctx.beginPath();
         ctx.arc(x, y, radius, 0, Math.PI * 2);
         if (unit.faction === 'Friendly') {
-          ctx.fillStyle = unit.role === 'Melee' ? '#22c55e' : '#3b82f6';
+          ctx.fillStyle = unit.role === 'Melee' ? '#4ade80' : '#60a5fa'; // Brighter green/blue
         } else {
-          ctx.fillStyle = unit.role === 'Melee' ? '#ef4444' : '#f97316';
+          ctx.fillStyle = unit.role === 'Melee' ? '#f87171' : '#fb923c'; // Brighter red/orange
         }
         ctx.fill();
 
-        ctx.strokeStyle = unit.faction === 'Friendly' ? '#4ade80' : '#f87171';
-        ctx.lineWidth = 2 / (baseScale * zoom);
+        // White outline for better visibility
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 3 / (baseScale * zoom);
         ctx.stroke();
       }
 
+      // Direction indicator (flip forward.y for correct direction)
       if (!unit.isDead) {
-        const fwdLength = radius + 8;
+        const fwdLength = radius + 10;
         ctx.beginPath();
         ctx.moveTo(x, y);
         ctx.lineTo(
           x + unit.forward.x * fwdLength,
-          y + unit.forward.y * fwdLength
+          y - unit.forward.y * fwdLength  // Negate Y because we flipped the coordinate system
         );
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 2 / (baseScale * zoom);
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 3 / (baseScale * zoom);
         ctx.stroke();
       }
 
-      ctx.fillStyle = '#fff';
-      ctx.font = 'bold 10px sans-serif';
+      // Unit label
+      ctx.fillStyle = '#000000';
+      ctx.font = 'bold 12px sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(unit.label, x, y);
 
-      const healthBarWidth = radius * 2;
-      const healthBarHeight = 4;
-      const healthBarY = y - radius - 8;
+      // Health bar
+      const healthBarWidth = radius * 2.5;
+      const healthBarHeight = 6;
+      const healthBarY = y - radius - 12;
       const healthPercent = unit.hp / 100;
 
       ctx.fillStyle = '#333';

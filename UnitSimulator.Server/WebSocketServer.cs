@@ -667,24 +667,32 @@ public class WebSocketServer : IDisposable
             return;
         }
 
+        Console.WriteLine($"[WebSocketServer] Processing command: {cmdType}");
+
         switch (cmdType)
         {
             case "start":
+                Console.WriteLine($"[WebSocketServer] Executing 'start' command");
                 await session.StartSimulationAsync();
                 await session.SendToClientAsync(client, "command_ack", new { command = "start", success = true });
                 break;
 
             case "stop":
+                Console.WriteLine($"[WebSocketServer] Executing 'stop' command");
                 session.StopSimulation();
                 await session.SendToClientAsync(client, "command_ack", new { command = "stop", success = true });
                 break;
 
             case "step":
+                Console.WriteLine($"[WebSocketServer] Executing 'step' command");
                 session.StepSimulation();
+                var stepFrame = session.Simulator.GetCurrentFrameData();
+                Console.WriteLine($"[WebSocketServer] Step complete: frame={stepFrame.FrameNumber}, towers={stepFrame.FriendlyTowers.Count}F/{stepFrame.EnemyTowers.Count}E, units={stepFrame.FriendlyUnits.Count}F/{stepFrame.EnemyUnits.Count}E");
                 await session.SendToClientAsync(client, "command_ack", new { command = "step", success = true });
                 break;
 
             case "step_back":
+                Console.WriteLine($"[WebSocketServer] Executing 'step_back' command");
                 await HandleStepBackAsync(client, session);
                 break;
 
@@ -692,6 +700,7 @@ public class WebSocketServer : IDisposable
                 if (commandData.TryGetProperty("frameNumber", out var frameElement) &&
                     frameElement.TryGetInt32(out var frameNumber))
                 {
+                    Console.WriteLine($"[WebSocketServer] Executing 'seek' to frame {frameNumber}");
                     await HandleSeekAsync(client, session, frameNumber);
                 }
                 else
@@ -701,8 +710,11 @@ public class WebSocketServer : IDisposable
                 break;
 
             case "reset":
+                Console.WriteLine($"[WebSocketServer] Executing 'reset' command");
                 session.ResetSimulation();
-                await session.BroadcastAsync("frame", session.Simulator.GetCurrentFrameData());
+                var resetFrame = session.Simulator.GetCurrentFrameData();
+                Console.WriteLine($"[WebSocketServer] Reset complete: towers={resetFrame.FriendlyTowers.Count}F/{resetFrame.EnemyTowers.Count}E, units={resetFrame.FriendlyUnits.Count}F/{resetFrame.EnemyUnits.Count}E");
+                await session.BroadcastAsync("frame", resetFrame);
                 await session.SendToClientAsync(client, "command_ack", new { command = "reset", success = true });
                 break;
 

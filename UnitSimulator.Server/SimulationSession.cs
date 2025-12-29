@@ -418,6 +418,12 @@ public class SimulationSession : IDisposable
 
     public async Task BroadcastAsync<T>(string type, T data)
     {
+        // Log frame broadcasts with tower/unit counts
+        if (type == "frame" && data is FrameData frameData)
+        {
+            Console.WriteLine($"[Session {SessionId[..8]}] Broadcasting frame #{frameData.FrameNumber}: towers={frameData.FriendlyTowers.Count}F/{frameData.EnemyTowers.Count}E, units={frameData.FriendlyUnits.Count}F/{frameData.EnemyUnits.Count}E");
+        }
+
         var message = new { type, data };
         var json = JsonSerializer.Serialize(message, _jsonOptions);
         var bytes = Encoding.UTF8.GetBytes(json);
