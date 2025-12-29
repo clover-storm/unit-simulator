@@ -9,8 +9,8 @@ import SimulationControls from './components/SimulationControls';
 import SessionSelector from './components/SessionSelector';
 import DataEditor from './components/DataEditor';
 
-const API_BASE_URL = 'http://localhost:5000';
-const WS_BASE_URL = 'ws://localhost:5000/ws';
+const API_BASE_URL = 'http://localhost:5001';
+const WS_BASE_URL = 'ws://localhost:5001/ws';
 
 function App() {
   const [activeView, setActiveView] = useState<'sim' | 'data'>('sim');

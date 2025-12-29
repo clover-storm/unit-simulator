@@ -1,4 +1,5 @@
 using System.Net.WebSockets;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 
@@ -380,7 +381,7 @@ public class SimulationSession : IDisposable
     /// <summary>
     /// Spawns a unit at the specified position.
     /// </summary>
-    public Unit SpawnUnit(
+    public Unit? SpawnUnit(
         System.Numerics.Vector2 position,
         UnitRole role,
         UnitFaction faction,
@@ -388,9 +389,15 @@ public class SimulationSession : IDisposable
         float? speed = null,
         float? turnSpeed = null)
     {
+        if (!TryResolveManualSpawnPosition(position, faction, out var resolvedPosition, out var error))
+        {
+            Console.WriteLine($"[Session {SessionId[..8]}] Spawn rejected: {error}");
+            return null;
+        }
+
         var callbacks = new SessionCallbacks(this);
         var unit = Simulator.InjectUnit(
-            position,
+            resolvedPosition,
             role,
             faction,
             hp,
@@ -398,8 +405,77 @@ public class SimulationSession : IDisposable
             turnSpeed,
             callbacks
         );
-        Console.WriteLine($"[Session {SessionId[..8]}] Spawned {faction} {role} unit at ({position.X:F0}, {position.Y:F0})");
+        Console.WriteLine($"[Session {SessionId[..8]}] Spawned {faction} {role} unit at ({resolvedPosition.X:F0}, {resolvedPosition.Y:F0})");
         return unit;
+    }
+
+    private bool TryResolveManualSpawnPosition(
+        System.Numerics.Vector2 position,
+        UnitFaction faction,
+        out System.Numerics.Vector2 resolvedPosition,
+        out string? error)
+    {
+        resolvedPosition = position;
+        error = null;
+
+        if (!MapLayout.IsWithinBounds(position))
+        {
+            error = "Spawn position is outside map bounds.";
+            return false;
+        }
+
+        if (faction == UnitFaction.Friendly && position.Y >= MapLayout.RiverYMin)
+        {
+            error = "Friendly units must be spawned below the river.";
+            return false;
+        }
+
+        if (faction == UnitFaction.Enemy && position.Y <= MapLayout.RiverYMax)
+        {
+            error = "Enemy units must be spawned above the river.";
+            return false;
+        }
+
+        float minY = faction == UnitFaction.Friendly ? 0f : MapLayout.EnemySpawnYMin;
+        float maxY = faction == UnitFaction.Friendly ? MapLayout.FriendlySpawnYMax : MapLayout.MapHeight;
+
+        if (IsSpawnPositionClear(position))
+        {
+            return true;
+        }
+
+        for (int attempt = 0; attempt < 10; attempt++)
+        {
+            float x = (float)(Random.Shared.NextDouble() * MapLayout.MapWidth);
+            float y = (float)(minY + Random.Shared.NextDouble() * (maxY - minY));
+            var candidate = new System.Numerics.Vector2(x, y);
+            if (IsSpawnPositionClear(candidate))
+            {
+                resolvedPosition = candidate;
+                return true;
+            }
+        }
+
+        resolvedPosition = faction == UnitFaction.Friendly
+            ? MapLayout.FriendlyDefaultSpawnPosition
+            : MapLayout.EnemyDefaultSpawnPosition;
+
+        return true;
+    }
+
+    private bool IsSpawnPositionClear(System.Numerics.Vector2 position)
+    {
+        float minDistance = GameConstants.UNIT_RADIUS * 2.5f;
+        foreach (var unit in Simulator.FriendlyUnits.Concat(Simulator.EnemyUnits))
+        {
+            if (unit.IsDead) continue;
+            if (System.Numerics.Vector2.Distance(unit.Position, position) < minDistance)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     #endregion

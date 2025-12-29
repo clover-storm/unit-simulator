@@ -3,9 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "concurrently -n server,client -c blue,green \"dotnet run --project UnitSimulator.Server -- --server\" \"npm run dev --prefix sim-studio\"",
+    "dev": "concurrently -n server,client -c blue,green \"dotnet run --project UnitSimulator.Server -- --server --port 5001\" \"npm run dev --prefix sim-studio\"",
     "build": "dotnet build UnitSimulator.Server && npm run build --prefix sim-studio",
-    "server": "dotnet run --project UnitSimulator.Server -- --server",
+    "server": "dotnet run --project UnitSimulator.Server -- --server --port 5001",
     "client": "npm run dev --prefix sim-studio"
   },
   "devDependencies": {

@@ -20,7 +20,7 @@ function CommandPanel({
 
   // Spawn unit state
   const [spawnX, setSpawnX] = useState('1600');
-  const [spawnY, setSpawnY] = useState('2550');
+  const [spawnY, setSpawnY] = useState('1500');
   const [spawnFaction, setSpawnFaction] = useState<'Friendly' | 'Enemy'>('Friendly');
   const [spawnRole, setSpawnRole] = useState<UnitRole>('Melee');
   const [spawnHp, setSpawnHp] = useState('');
@@ -233,7 +233,11 @@ function CommandPanel({
               <button
                 type="button"
                 className={`btn-toggle ${spawnFaction === 'Friendly' ? 'active friendly' : ''}`}
-                onClick={() => setSpawnFaction('Friendly')}
+                onClick={() => {
+                  setSpawnFaction('Friendly');
+                  setSpawnX('1600');
+                  setSpawnY('1500');
+                }}
                 disabled={isSpawnDisabled}
               >
                 Friendly
@@ -241,7 +245,11 @@ function CommandPanel({
               <button
                 type="button"
                 className={`btn-toggle ${spawnFaction === 'Enemy' ? 'active enemy' : ''}`}
-                onClick={() => setSpawnFaction('Enemy')}
+                onClick={() => {
+                  setSpawnFaction('Enemy');
+                  setSpawnX('1600');
+                  setSpawnY('3600');
+                }}
                 disabled={isSpawnDisabled}
               >
                 Enemy

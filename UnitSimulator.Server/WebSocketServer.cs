@@ -1007,6 +1007,17 @@ public class WebSocketServer : IDisposable
             hp
         );
 
+        if (unit == null)
+        {
+            await session.SendToClientAsync(client, "command_ack", new
+            {
+                command = "spawn",
+                success = false,
+                message = "Spawn rejected by manual spawn rules."
+            });
+            return;
+        }
+
         await session.SendToClientAsync(client, "command_ack", new
         {
             command = "spawn",
