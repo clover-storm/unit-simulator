@@ -46,6 +46,7 @@ namespace UnitSimulator.Core.Pathfinding
         public int ScenarioIndex { get; set; }
         public SerializableVector2 Start { get; set; } = new();
         public SerializableVector2 End { get; set; } = new();
+        public List<SerializableVector2>? Path { get; set; }
         public bool PathFound { get; set; }
         public int NodeCount { get; set; }
         public float PathLength { get; set; }

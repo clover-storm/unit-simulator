@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using UnitSimulator;
 
 namespace UnitSimulator.Core.Pathfinding
 {
@@ -31,6 +32,7 @@ namespace UnitSimulator.Core.Pathfinding
                     ScenarioIndex = i,
                     Start = startNode.WorldPosition,
                     End = endNode.WorldPosition,
+                    Path = ConvertPath(path),
                     PathFound = path != null,
                     NodeCount = nodeCount,
                     PathLength = length,
@@ -149,6 +151,22 @@ namespace UnitSimulator.Core.Pathfinding
             }
 
             return (length, path.Count);
+        }
+
+        private static List<SerializableVector2>? ConvertPath(List<Vector2>? path)
+        {
+            if (path == null || path.Count == 0)
+            {
+                return null;
+            }
+
+            var converted = new List<SerializableVector2>(path.Count);
+            foreach (var point in path)
+            {
+                converted.Add(new SerializableVector2(point));
+            }
+
+            return converted;
         }
     }
 }

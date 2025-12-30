@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\ReferenceModels\ReferenceModels.csproj" />
+    <ProjectReference Include="..\..\UnitSimulator.Core\UnitSimulator.Core.csproj" />
   </ItemGroup>
 
 </Project>
