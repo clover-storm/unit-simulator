@@ -60,46 +60,4 @@ public class SkillReference
 
     [JsonPropertyName("knockbackDistance")]
     public float KnockbackDistance { get; init; } = 0f;
-
-    /// <summary>
-    /// JSON 데이터를 실제 AbilityData로 변환합니다.
-    /// </summary>
-    public AbilityData? ToAbilityData()
-    {
-        return Type.ToLowerInvariant() switch
-        {
-            "chargeattack" => new ChargeAttackData
-            {
-                TriggerDistance = TriggerDistance,
-                RequiredChargeDistance = RequiredChargeDistance,
-                DamageMultiplier = DamageMultiplier,
-                SpeedMultiplier = SpeedMultiplier
-            },
-            "splashdamage" => new SplashDamageData
-            {
-                Radius = Radius,
-                DamageFalloff = DamageFalloff
-            },
-            "shield" => new ShieldData
-            {
-                MaxShieldHP = MaxShieldHP,
-                BlocksStun = BlocksStun,
-                BlocksKnockback = BlocksKnockback
-            },
-            "deathspawn" => new DeathSpawnData
-            {
-                SpawnUnitId = SpawnUnitId,
-                SpawnCount = SpawnCount,
-                SpawnRadius = SpawnRadius,
-                SpawnUnitHP = SpawnUnitHP
-            },
-            "deathdamage" => new DeathDamageData
-            {
-                Damage = Damage,
-                Radius = Radius,
-                KnockbackDistance = KnockbackDistance
-            },
-            _ => null
-        };
-    }
 }
