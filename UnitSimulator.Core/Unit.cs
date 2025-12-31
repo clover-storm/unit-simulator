@@ -1,43 +1,11 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
+using ReferenceModels.Models.Enums;
 
 namespace UnitSimulator;
 
-public enum UnitRole { Melee, Ranged }
 public enum UnitFaction { Friendly, Enemy }
-
-public enum TargetPriority
-{
-    Nearest,
-    Buildings
-}
-
-/// <summary>
-/// 유닛의 이동 레이어를 정의합니다.
-/// Ground 유닛은 지형/장애물 영향을 받고, Air 유닛은 지형을 무시합니다.
-/// </summary>
-public enum MovementLayer
-{
-    Ground,  // 지상 유닛 - 지형/충돌 영향 받음
-    Air      // 공중 유닛 - 지형 무시, 공중 유닛끼리만 충돌
-}
-
-/// <summary>
-/// 유닛이 공격할 수 있는 대상 유형을 정의합니다.
-/// Flags 속성으로 복수 선택 가능합니다.
-/// </summary>
-[Flags]
-public enum TargetType
-{
-    None     = 0,
-    Ground   = 1 << 0,  // 지상 유닛 공격 가능
-    Air      = 1 << 1,  // 공중 유닛 공격 가능
-    Building = 1 << 2,  // 건물 공격 가능
-
-    GroundAndAir = Ground | Air,
-    All = Ground | Air | Building
-}
 
 public class Unit
 {
