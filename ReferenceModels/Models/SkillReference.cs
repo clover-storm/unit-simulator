@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using ReferenceModels.Models.Enums;
 
 namespace ReferenceModels.Models;
 
@@ -60,4 +61,28 @@ public class SkillReference
 
     [JsonPropertyName("knockbackDistance")]
     public float KnockbackDistance { get; init; } = 0f;
+
+    // === 상태 효과 관련 (새로운 필드들) ===
+
+    /// <summary>부여할 상태 효과 (기본값: None)</summary>
+    [JsonPropertyName("appliedEffect")]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public StatusEffectType AppliedEffect { get; init; } = StatusEffectType.None;
+
+    /// <summary>상태 효과 지속 시간 (초, 기본값: 0)</summary>
+    [JsonPropertyName("effectDuration")]
+    public float EffectDuration { get; init; } = 0f;
+
+    /// <summary>효과 크기 (슬로우: 속도 감소율, 레이지: 속도 증가율 등)</summary>
+    [JsonPropertyName("effectMagnitude")]
+    public float EffectMagnitude { get; init; } = 0f;
+
+    /// <summary>효과 범위 (기본값: 0, 범위 효과용)</summary>
+    [JsonPropertyName("effectRange")]
+    public float EffectRange { get; init; } = 0f;
+
+    /// <summary>영향받는 대상 (기본값: None)</summary>
+    [JsonPropertyName("affectedTargets")]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public TargetType AffectedTargets { get; init; } = TargetType.None;
 }
