@@ -168,6 +168,43 @@ public static class ReferenceExtensions
         return result;
     }
 
+    // ════════════════════════════════════════════════════════════════════════
+    // Building, Spell 확장 메서드 (미래 구현 대기)
+    // ════════════════════════════════════════════════════════════════════════
+
+    // TODO: Building 엔티티 구현 시 활성화
+    // /// <summary>
+    // /// BuildingReference를 기반으로 Building 인스턴스를 생성합니다.
+    // /// </summary>
+    // public static Building CreateBuilding(
+    //     this BuildingReference buildingRef,
+    //     int id,
+    //     UnitFaction faction,
+    //     Vector2 position,
+    //     ReferenceManager? referenceManager = null)
+    // {
+    //     // Building 클래스 정의 후 구현 예정
+    //     throw new NotImplementedException("Building 엔티티가 아직 구현되지 않았습니다.");
+    // }
+
+    // TODO: Spell 엔티티 구현 시 활성화
+    // /// <summary>
+    // /// SpellReference를 기반으로 Spell 인스턴스를 생성합니다.
+    // /// </summary>
+    // public static Spell CreateSpell(
+    //     this SpellReference spellRef,
+    //     UnitFaction faction,
+    //     Vector2 targetPosition,
+    //     ReferenceManager? referenceManager = null)
+    // {
+    //     // Spell 클래스 정의 후 구현 예정
+    //     throw new NotImplementedException("Spell 엔티티가 아직 구현되지 않았습니다.");
+    // }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // Tower 확장 메서드
+    // ════════════════════════════════════════════════════════════════════════
+
     /// <summary>
     /// TowerReference를 기반으로 Tower 인스턴스를 생성합니다.
     /// </summary>
