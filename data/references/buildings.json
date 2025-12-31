@@ -34,17 +34,5 @@
     "attackSpeed": 1.1,
     "canTarget": "GroundAndAir",
     "skills": []
-  },
-  "goblin_hut": {
-    "displayName": "Goblin Hut",
-    "type": "Spawner",
-    "maxHP": 1232,
-    "radius": 2.5,
-    "lifetime": 60.0,
-    "spawnUnitId": "spear_goblin",
-    "spawnCount": 1,
-    "spawnInterval": 4.9,
-    "firstSpawnDelay": 1.0,
-    "skills": []
   }
 }

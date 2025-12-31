@@ -175,7 +175,7 @@
     "radius": 40,
     "role": "Tank",
     "layer": "Ground",
-    "canTarget": "Buildings",
+    "canTarget": "Building",
     "targetPriority": "Buildings",
     "entityType": "Troop",
     "attackType": "Melee",
