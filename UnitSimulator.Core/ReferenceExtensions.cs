@@ -132,6 +132,14 @@ public static class ReferenceExtensions
                 Radius = skillRef.Radius,
                 KnockbackDistance = skillRef.KnockbackDistance
             },
+            "statuseffect" => new StatusEffectAbilityData
+            {
+                AppliedEffect = skillRef.AppliedEffect,
+                EffectDuration = skillRef.EffectDuration,
+                EffectMagnitude = skillRef.EffectMagnitude,
+                EffectRange = skillRef.EffectRange,
+                AffectedTargets = skillRef.AffectedTargets
+            },
             _ => null
         };
     }

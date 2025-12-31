@@ -23,7 +23,11 @@ public enum AbilityType
     /// <summary>죽을 때 유닛 생성</summary>
     DeathSpawn,
     /// <summary>죽을 때 폭발 피해</summary>
-    DeathDamage
+    DeathDamage,
+
+    // === 상태 효과 ===
+    /// <summary>상태 효과 부여 (스턴, 슬로우, 프리즈 등)</summary>
+    StatusEffect
 }
 
 /// <summary>
@@ -140,4 +144,31 @@ public class DeathDamageData : AbilityData
 
     /// <summary>넉백 거리 (0이면 넉백 없음)</summary>
     public float KnockbackDistance { get; init; } = 0f;
+}
+
+/// <summary>
+/// StatusEffect 능력 데이터
+/// 대상에게 상태 효과를 부여
+/// </summary>
+public class StatusEffectAbilityData : AbilityData
+{
+    public StatusEffectAbilityData()
+    {
+        Type = AbilityType.StatusEffect;
+    }
+
+    /// <summary>부여할 상태 효과 타입 (Flags enum - 여러 효과 동시 적용 가능)</summary>
+    public StatusEffectType AppliedEffect { get; init; } = StatusEffectType.None;
+
+    /// <summary>상태 효과 지속 시간 (초)</summary>
+    public float EffectDuration { get; init; } = 0f;
+
+    /// <summary>효과 강도/배율 (슬로우 비율, 데미지 배율 등)</summary>
+    public float EffectMagnitude { get; init; } = 1.0f;
+
+    /// <summary>효과 적용 범위 (0이면 타겟만)</summary>
+    public float EffectRange { get; init; } = 0f;
+
+    /// <summary>영향받는 타겟 타입</summary>
+    public TargetType AffectedTargets { get; init; } = TargetType.Ground;
 }
