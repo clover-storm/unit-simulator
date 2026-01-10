@@ -1,8 +1,9 @@
 # 기능: 타워 스킬 시스템
 
-**문서 버전**: 1.0  
+**문서 버전**: 1.1  
 **작성일**: 2026-01-09  
-**상태**: 설계 완료
+**수정일**: 2026-01-10  
+**상태**: Phase 1 구현 완료
 
 ---
 
@@ -35,11 +36,13 @@
 ## 완료 조건
 
 - [x] WebSocket 프로토콜 정의됨 (ActivateTowerSkillRequest/Response)
-- [ ] C# 클래스 구현됨 (TowerSkillSystem)
-- [ ] 스킬 효과 시스템 구현됨 (SkillEffect)
-- [ ] xUnit 테스트 통과함 (최소 10개 케이스)
-- [ ] ReferenceModels에 스킬 데이터 추가됨
-- [ ] 기존 전투 시스템과 통합됨
+- [x] C# 클래스 구현됨 (TowerSkillSystem)
+- [x] 스킬 효과 시스템 구현됨 (TargetedDamage, AreaOfEffect)
+- [x] xUnit 테스트 통과함 (23개 케이스)
+- [x] ReferenceModels에 스킬 데이터 추가됨
+- [x] 기존 전투 시스템과 통합됨
+- [ ] Buff/Debuff 시스템 구현 (Phase 2)
+- [ ] JSON 데이터 외부화 (Phase 2)
 
 ---
 
@@ -254,7 +257,21 @@ Client           Server              TowerSkillHandler      TowerSkillSystem    
 ## 다음 단계
 
 1. **API 설계**: `/new-api` 명령으로 WebSocket 프로토콜 상세화 → ✅ 완료
-2. **Core 구현**: TowerSkillSystem, SkillEffectProcessor 구현
-3. **Server 구현**: TowerSkillHandler 구현
-4. **테스트 작성**: `/run-tests` 명령으로 xUnit 테스트 생성
+2. **Core 구현**: TowerSkillSystem, SkillEffectProcessor 구현 → ✅ 완료
+3. **Server 구현**: TowerSkillHandler 구현 → ✅ 완료
+4. **테스트 작성**: xUnit 테스트 23개 통과 → ✅ 완료
 5. **리뷰**: `/pre-pr` 명령으로 코드 리뷰 및 PR 준비
+
+---
+
+## Phase 2 계획 (예정)
+
+### Buff/Debuff 시스템
+- `IStatusEffect` 인터페이스
+- `StatusEffectSystem` 클래스
+- 지속 시간 및 스택 관리
+
+### JSON 데이터 외부화
+- `tower-skills.json` 파일
+- `TowerSkillLoader` 클래스
+- 런타임 스킬 로딩

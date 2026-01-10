@@ -6,8 +6,9 @@
 
 ## 타워 스킬 시스템
 
-**상태**: 🟡 진행 중 (파일럿 테스트)  
+**상태**: ✅ Phase 1 완료  
 **시작일**: 2026-01-09  
+**완료일**: 2026-01-10  
 
 ### 목적
 타워가 자동 공격 외에 특수 스킬을 발동할 수 있게 하여 게임플레이 다양성 향상
@@ -35,9 +36,9 @@
 ### 마일스톤
 1. [x] 기능 정의서 작성 (specs/features/tower-skill-system.md)
 2. [x] WebSocket API 설계 (specs/apis/tower-skill-api.md)
-3. [ ] Core 로직 구현 (TowerSkillSystem.cs)
-4. [ ] Server 핸들러 구현 (TowerSkillHandler.cs)
-5. [ ] xUnit 테스트 작성 및 통과
+3. [x] Core 로직 구현 (TowerSkillSystem.cs)
+4. [x] Server 핸들러 구현 (TowerSkillHandler.cs)
+5. [x] xUnit 테스트 작성 및 통과 (23개 테스트)
 6. [ ] 코드 리뷰 및 PR
 
 ### 리스크
