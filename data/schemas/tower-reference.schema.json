@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://unit-simulator.github.io/schemas/tower-reference.schema.json",
+  "title": "Tower Reference Schema",
+  "description": "Schema for tower reference data in unit-simulator project",
+  "type": "object",
+  "patternProperties": {
+    "^[a-z_]+$": {
+      "$ref": "#/$defs/TowerReference"
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "TowerReference": {
+      "type": "object",
+      "required": [
+        "displayName",
+        "type",
+        "maxHP",
+        "damage",
+        "attackSpeed",
+        "attackRadius",
+        "radius",
+        "canTarget"
+      ],
+      "properties": {
+        "displayName": {
+          "type": "string",
+          "description": "Human-readable tower name",
+          "minLength": 1
+        },
+        "type": {
+          "type": "string",
+          "description": "Tower type classification",
+          "enum": ["Princess", "King"]
+        },
+        "maxHP": {
+          "type": "integer",
+          "description": "Maximum hit points",
+          "minimum": 1
+        },
+        "damage": {
+          "type": "integer",
+          "description": "Base damage per attack",
+          "minimum": 0
+        },
+        "attackSpeed": {
+          "type": "number",
+          "description": "Attacks per second",
+          "minimum": 0,
+          "exclusiveMinimum": 0
+        },
+        "attackRadius": {
+          "type": "number",
+          "description": "Attack range radius",
+          "minimum": 0,
+          "exclusiveMinimum": 0
+        },
+        "radius": {
+          "type": "number",
+          "description": "Tower collision radius",
+          "minimum": 0,
+          "exclusiveMinimum": 0
+        },
+        "canTarget": {
+          "type": "string",
+          "description": "Which layers this tower can attack",
+          "enum": ["Ground", "Air", "GroundAndAir"]
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
