@@ -9,6 +9,8 @@
     "client": "npm run dev --prefix sim-studio"
   },
   "devDependencies": {
+    "ajv-cli": "^5.0.0",
+    "ajv-formats": "^3.0.1",
     "concurrently": "^9.1.0"
   }
 }

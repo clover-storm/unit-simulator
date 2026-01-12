@@ -1,5 +1,5 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://unit-simulator.github.io/schemas/skill-reference.schema.json",
   "title": "Skill Reference Schema",
   "description": "Schema for skill/ability reference data in unit-simulator project",
