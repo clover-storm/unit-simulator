@@ -4,6 +4,42 @@
 
 ---
 
+## 🚀 Quick Start (에이전트용)
+
+### 필수 확인 사항
+1. **[AGENTS.md](AGENTS.md)** - 에이전트 역할 및 협업 규칙 (자동 주입됨)
+2. **[docs/INDEX.md](docs/INDEX.md)** - 모든 문서 인덱스 (단일 진실 원천)
+3. **[docs/development-milestone.md](docs/development-milestone.md)** - 현재 Phase 및 작업 현황
+
+### 현재 프로젝트 상태 (2026-01-13)
+- ✅ **Phase 1**: 코어 분리 완료 (100%)
+- ✅ **Phase 2.1**: 데이터 스키마 표준화 완료 (100%)
+- 🚧 **Phase 2.2**: 데이터 변환 파이프라인 (다음 단계)
+- 📊 **Tests**: 73/73 passing (100%)
+- ✅ **Data Validation**: units, skills, towers validated
+
+### 프로젝트 구조
+```
+unit-simulator/
+├── UnitSimulator.Core/      # 순수 시뮬레이션 로직 (의존성 최소)
+├── UnitSimulator.Server/    # WebSocket 서버, 세션 관리
+├── ReferenceModels/         # 데이터 모델, JSON 로딩
+├── sim-studio/              # React/TypeScript UI
+├── data/
+│   ├── schemas/             # JSON Schema 정의 (Draft-07)
+│   ├── references/          # 게임 데이터 (units, skills, towers)
+│   └── validation/          # 검증 리포트
+└── docs/                    # 문서 (INDEX.md 참조)
+```
+
+### 작업별 빠른 참조
+- **새 기능**: [development-milestone.md](docs/development-milestone.md) → 해당 Phase
+- **데이터 수정**: `npm run data:validate` 실행 후 커밋
+- **코드 리뷰**: [AGENTS.md](AGENTS.md) → Reviewer 역할 확인
+- **문서 찾기**: [docs/INDEX.md](docs/INDEX.md)
+
+---
+
 ## 1. 기본 원칙
 
 ### 1.1 문서 우선주의
