@@ -483,6 +483,11 @@ public class SimulatorCore
         _towerBehavior.UpdateAllTowers(_gameSession, _friendlySquad, _enemySquad, events, deltaTime);
 
         // ════════════════════════════════════════════════════════════════════════
+        // Phase 1.5: Collision Resolution - 유닛 간 물리적 겹침 해소 (Body Blocking)
+        // ════════════════════════════════════════════════════════════════════════
+        ResolveCollisions();
+
+        // ════════════════════════════════════════════════════════════════════════
         // Phase 2: Apply - 이벤트 일괄 적용
         // ════════════════════════════════════════════════════════════════════════
         ApplyDamageEvents(events);
@@ -1009,5 +1014,75 @@ public class SimulatorCore
 
         Initialize();
         Console.WriteLine("[SimulatorCore] Reset complete");
+    }
+
+    // ================================================================================
+    // Collision Resolution (Phase 3: Body Blocking)
+    // ================================================================================
+
+    /// <summary>
+    /// 유닛 간 물리적 충돌을 해소합니다.
+    /// 겹친 유닛들을 서로 밀어내어 "몸으로 막기(Body Blocking)" 효과를 구현합니다.
+    /// </summary>
+    private void ResolveCollisions()
+    {
+        var allUnits = GetAllLivingUnits().ToList();
+        if (allUnits.Count < 2) return;
+
+        // 여러 번 반복하여 안정적으로 겹침을 해결
+        for (int iteration = 0; iteration < GameConstants.COLLISION_RESOLUTION_ITERATIONS; iteration++)
+        {
+            bool anyCollisionResolved = false;
+
+            for (int i = 0; i < allUnits.Count; i++)
+            {
+                var unitA = allUnits[i];
+                if (unitA.IsDead) continue;
+
+                for (int j = i + 1; j < allUnits.Count; j++)
+                {
+                    var unitB = allUnits[j];
+                    if (unitB.IsDead) continue;
+
+                    // 같은 레이어의 유닛끼리만 충돌 해소
+                    if (!unitA.IsSameLayer(unitB)) continue;
+
+                    float combinedRadius = unitA.Radius + unitB.Radius;
+                    Vector2 delta = unitB.Position - unitA.Position;
+                    float distance = delta.Length();
+
+                    // 겹침 발생 여부 확인
+                    if (distance < combinedRadius && distance > 0.001f)
+                    {
+                        float overlap = combinedRadius - distance;
+                        Vector2 pushDirection = MathUtils.SafeNormalize(delta);
+
+                        // 각 유닛을 반대 방향으로 밀어냄 (절반씩)
+                        float pushAmount = overlap * 0.5f * GameConstants.COLLISION_PUSH_STRENGTH;
+                        unitA.Position -= pushDirection * pushAmount;
+                        unitB.Position += pushDirection * pushAmount;
+
+                        anyCollisionResolved = true;
+                    }
+                    else if (distance <= 0.001f)
+                    {
+                        // 완전히 겹친 경우 임의의 방향으로 분리
+                        float pushAmount = combinedRadius * 0.5f * GameConstants.COLLISION_PUSH_STRENGTH;
+                        Vector2 randomDir = new Vector2(
+                            (float)(unitA.Id % 7 - 3) * 0.1f + 0.5f,
+                            (float)(unitB.Id % 7 - 3) * 0.1f + 0.5f
+                        );
+                        randomDir = MathUtils.SafeNormalize(randomDir);
+                        unitA.Position -= randomDir * pushAmount;
+                        unitB.Position += randomDir * pushAmount;
+
+                        anyCollisionResolved = true;
+                    }
+                }
+            }
+
+            // 더 이상 충돌이 없으면 조기 종료
+            if (!anyCollisionResolved) break;
+        }
     }
 }

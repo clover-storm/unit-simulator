@@ -85,4 +85,18 @@ public static class GameConstants
     // Phase 5: Debug Settings
     // ════════════════════════════════════════════════════════════════════════
     public const bool PATHFINDING_DEBUG_ENABLED = false;
+
+    // ════════════════════════════════════════════════════════════════════════
+    // Phase 6: Collision Resolution Settings (Body Blocking)
+    // ════════════════════════════════════════════════════════════════════════
+    /// <summary>
+    /// 충돌 해소 반복 횟수. 높을수록 안정적이지만 성능 부담 증가.
+    /// </summary>
+    public const int COLLISION_RESOLUTION_ITERATIONS = 3;
+
+    /// <summary>
+    /// 충돌 시 밀어내는 힘의 강도 (0.0~1.0).
+    /// 1.0이면 겹침을 완전히 해소, 낮은 값은 부드러운 밀어내기.
+    /// </summary>
+    public const float COLLISION_PUSH_STRENGTH = 0.8f;
 }
