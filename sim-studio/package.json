@@ -14,6 +14,8 @@
   "dependencies": {
     "ag-grid-community": "^35.0.0",
     "ag-grid-react": "^35.0.0",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },

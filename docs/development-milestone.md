@@ -1080,6 +1080,8 @@ namespace UnitSimulator.Core.Data
 
 ### M2.4: 데이터 뷰/에디터 (React)
 
+**상태**: ✅ 완료
+
 **담당**: 툴링/UX
 
 **목표**: JSON 데이터를 브라우저에서 조회/추가/삭제/수정하고 스키마 검증 후 저장
@@ -1088,12 +1090,41 @@ namespace UnitSimulator.Core.Data
 - JSON을 **단일 소스**로 유지
 - React 기반 UI로 테이블/폼 뷰 제공
 - 스키마 검증(저장 전) + mtime/hash 기반 충돌 감지
-- 초기에는 **별도 앱으로 구성 후 안정화되면 sim-studio에 통합**
+- sim-studio에 통합 (DataEditor 컴포넌트)
 
 **완료 조건**:
-- [ ] JSON 데이터 목록/조회/수정/추가/삭제 가능
-- [ ] 스키마 검증 실패 시 저장 차단
-- [ ] 충돌 감지 및 diff 확인 가능
+- [x] JSON 데이터 목록/조회/수정/추가/삭제 가능
+- [x] 스키마 검증 실패 시 저장 차단
+- [x] 충돌 감지 및 diff 확인 가능
+
+**구현 결과**:
+
+1. **DataEditor 컴포넌트** (`sim-studio/src/components/DataEditor.tsx`):
+   - 3가지 뷰 모드: Spreadsheet, Table, Raw JSON
+   - 파일 생성/삭제/이름변경
+   - 레코드 추가/삭제/수정
+   - ETag 기반 충돌 감지
+
+2. **스키마 검증** (`sim-studio/src/hooks/useSchemaValidator.ts`):
+   - Ajv 기반 클라이언트 사이드 검증
+   - 저장 전 자동 검증 (검증 실패 시 저장 차단)
+   - 수동 Validate 버튼
+   - 에러 상세 목록 표시
+
+3. **서버 API** (`UnitSimulator.Server/WebSocketServer.cs`):
+   - `GET /data/files` - 파일 목록
+   - `GET /data/file?path=xxx` - 파일 읽기
+   - `PUT /data/file?path=xxx` - 파일 저장 (ETag 충돌 감지)
+   - `DELETE /data/file?path=xxx` - 파일 삭제
+   - `GET /data/schemas` - 스키마 목록
+   - `GET /data/schema?name=xxx` - 스키마 조회
+
+4. **지원 스키마 매핑**:
+   - `units.json` → `unit-stats.schema.json`
+   - `skills.json` → `skill-reference.schema.json`
+   - `towers.json` → `tower-reference.schema.json`
+   - `waves.json` → `wave-definition.schema.json`
+   - `balance.json` → `game-balance.schema.json`
 
 ## 6. Phase 3: 게임 엔진 선정 및 어댑터 개발
 

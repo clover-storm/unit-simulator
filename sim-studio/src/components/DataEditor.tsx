@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import SpreadsheetView from './SpreadsheetView';
 import Resizer from './Resizer';
+import { useSchemaValidator, ValidationResult } from '../hooks/useSchemaValidator';
 
 type DataFile = {
   path: string;
@@ -56,6 +57,11 @@ export default function DataEditor({ apiBaseUrl }: Props) {
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [spreadsheetHeight, setSpreadsheetHeight] = useState(400);
+  const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
+  const [isValidating, setIsValidating] = useState(false);
+
+  // Schema validator hook
+  const { validate, hasSchema, getSchemaForFile, isLoading: isLoadingSchema } = useSchemaValidator(apiBaseUrl);
 
   const isArray = useMemo(() => Array.isArray(documentValue), [documentValue]);
 
@@ -232,10 +238,50 @@ export default function DataEditor({ apiBaseUrl }: Props) {
     setStatus('Record removed.');
   }, [activeArray, activeArrayPathSegments, selectedIndex, setPathValue]);
 
+  // Validate current document against schema
+  const validateData = useCallback(async () => {
+    if (!selectedPath || !documentValue) return;
+    setIsValidating(true);
+    setValidationResult(null);
+    try {
+      const result = await validate(selectedPath, documentValue);
+      setValidationResult(result);
+      if (result.valid) {
+        setStatus('Validation passed.');
+      } else {
+        setError(`Validation failed: ${result.errorMessages.length} error(s)`);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Validation error.');
+    } finally {
+      setIsValidating(false);
+    }
+  }, [selectedPath, documentValue, validate]);
+
   const saveFile = useCallback(async () => {
     if (!selectedPath) return;
     setError(null);
     setStatus(null);
+    setValidationResult(null);
+
+    // Validate before saving if schema exists
+    if (hasSchema(selectedPath)) {
+      setIsValidating(true);
+      try {
+        const result = await validate(selectedPath, documentValue);
+        setValidationResult(result);
+        if (!result.valid) {
+          setError(`Validation failed. Fix ${result.errorMessages.length} error(s) before saving.`);
+          setIsValidating(false);
+          return;
+        }
+      } catch (err) {
+        console.warn('Validation failed:', err);
+        // Continue saving even if validation fails
+      }
+      setIsValidating(false);
+    }
+
     const content = JSON.stringify(documentValue, null, 2);
     try {
       const res = await fetch(`${apiBaseUrl}/data/file?path=${encodeURIComponent(selectedPath)}`, {
@@ -257,7 +303,7 @@ export default function DataEditor({ apiBaseUrl }: Props) {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error.');
     }
-  }, [apiBaseUrl, documentValue, etag, loadFiles, selectedPath]);
+  }, [apiBaseUrl, documentValue, etag, hasSchema, loadFiles, selectedPath, validate]);
 
   const createFile = useCallback(async () => {
     if (!newFilePath.trim()) return;
@@ -603,13 +649,48 @@ export default function DataEditor({ apiBaseUrl }: Props) {
             </div>
             <button className="btn-secondary" onClick={loadFiles}>Refresh</button>
             <button className="btn-secondary" onClick={deleteFile} disabled={!selectedPath}>Delete File</button>
-            <button className="btn-primary" onClick={saveFile} disabled={!selectedPath}>Save</button>
+            <button
+              className="btn-secondary"
+              onClick={validateData}
+              disabled={!selectedPath || isValidating || !hasSchema(selectedPath || '')}
+              title={selectedPath && hasSchema(selectedPath) ? `Validate against ${getSchemaForFile(selectedPath)} schema` : 'No schema for this file'}
+            >
+              {isValidating ? 'Validating...' : 'Validate'}
+            </button>
+            <button className="btn-primary" onClick={saveFile} disabled={!selectedPath || isValidating}>
+              {isValidating ? 'Validating...' : 'Save'}
+            </button>
           </div>
         </div>
 
         {error && <div className="data-editor-error">{error}</div>}
         {status && <div className="data-editor-status">{status}</div>}
         {isLoading && <div className="data-editor-status">Loading...</div>}
+
+        {/* Validation Results */}
+        {validationResult && !validationResult.valid && (
+          <div className="data-editor-validation-errors">
+            <div className="validation-header">
+              <strong>Schema Validation Errors ({validationResult.errorMessages.length})</strong>
+              <button className="btn-icon" onClick={() => setValidationResult(null)} title="Dismiss">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+            <ul className="validation-error-list">
+              {validationResult.errorMessages.map((msg, i) => (
+                <li key={i}>{msg}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {validationResult && validationResult.valid && selectedPath && hasSchema(selectedPath) && (
+          <div className="data-editor-validation-success">
+            ✓ Valid against {getSchemaForFile(selectedPath)} schema
+          </div>
+        )}
 
         {!selectedPath && (
           <div className="data-editor-empty">Select a file to edit.</div>
