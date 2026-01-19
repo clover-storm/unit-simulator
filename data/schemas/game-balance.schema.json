@@ -1,0 +1,210 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://unit-simulator.github.io/schemas/game-balance.schema.json",
+  "title": "Game Balance Schema",
+  "description": "Schema for game balance and simulation settings in unit-simulator project",
+  "type": "object",
+  "required": ["version"],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "description": "Data schema version",
+      "minimum": 1
+    },
+    "simulation": {
+      "type": "object",
+      "description": "Simulation space settings",
+      "properties": {
+        "width": {
+          "type": "integer",
+          "description": "Simulation space width",
+          "minimum": 100
+        },
+        "height": {
+          "type": "integer",
+          "description": "Simulation space height",
+          "minimum": 100
+        },
+        "maxFrames": {
+          "type": "integer",
+          "description": "Maximum simulation frames",
+          "minimum": 1
+        },
+        "frameTimeSeconds": {
+          "type": "number",
+          "description": "Time per frame in seconds",
+          "minimum": 0,
+          "exclusiveMinimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "unit": {
+      "type": "object",
+      "description": "Unit default settings",
+      "properties": {
+        "defaultRadius": {
+          "type": "number",
+          "description": "Default unit radius",
+          "minimum": 1
+        },
+        "collisionRadiusScale": {
+          "type": "number",
+          "description": "Collision radius scale factor",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "numAttackSlots": {
+          "type": "integer",
+          "description": "Number of attack slots per target",
+          "minimum": 1
+        },
+        "slotReevaluateDistance": {
+          "type": "number",
+          "description": "Distance threshold for slot re-evaluation",
+          "minimum": 0
+        },
+        "slotReevaluateIntervalFrames": {
+          "type": "integer",
+          "description": "Frames between slot re-evaluations",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "combat": {
+      "type": "object",
+      "description": "Combat settings",
+      "properties": {
+        "attackCooldown": {
+          "type": "number",
+          "description": "Attack cooldown in frames",
+          "minimum": 0
+        },
+        "meleeRangeMultiplier": {
+          "type": "integer",
+          "description": "Melee attack range multiplier",
+          "minimum": 1
+        },
+        "rangedRangeMultiplier": {
+          "type": "integer",
+          "description": "Ranged attack range multiplier",
+          "minimum": 1
+        },
+        "engagementTriggerDistanceMultiplier": {
+          "type": "number",
+          "description": "Engagement trigger distance multiplier",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "squad": {
+      "type": "object",
+      "description": "Squad behavior settings",
+      "properties": {
+        "rallyDistance": {
+          "type": "number",
+          "description": "Rally point distance",
+          "minimum": 0
+        },
+        "formationThreshold": {
+          "type": "number",
+          "description": "Formation threshold distance",
+          "minimum": 0
+        },
+        "separationRadius": {
+          "type": "number",
+          "description": "Enemy separation radius",
+          "minimum": 0
+        },
+        "friendlySeparationRadius": {
+          "type": "number",
+          "description": "Friendly separation radius",
+          "minimum": 0
+        },
+        "destinationThreshold": {
+          "type": "number",
+          "description": "Destination arrival threshold",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "wave": {
+      "type": "object",
+      "description": "Wave settings",
+      "properties": {
+        "maxWaves": {
+          "type": "integer",
+          "description": "Maximum number of waves",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "targeting": {
+      "type": "object",
+      "description": "Targeting settings",
+      "properties": {
+        "reevaluateIntervalFrames": {
+          "type": "integer",
+          "description": "Frames between target re-evaluations",
+          "minimum": 1
+        },
+        "switchMargin": {
+          "type": "number",
+          "description": "Target switch margin",
+          "minimum": 0
+        },
+        "crowdPenaltyPerAttacker": {
+          "type": "number",
+          "description": "Penalty per attacker on target",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "avoidance": {
+      "type": "object",
+      "description": "Avoidance system settings",
+      "properties": {
+        "angleStep": {
+          "type": "number",
+          "description": "Avoidance angle step in radians",
+          "minimum": 0
+        },
+        "maxIterations": {
+          "type": "integer",
+          "description": "Maximum avoidance iterations",
+          "minimum": 1
+        },
+        "maxLookahead": {
+          "type": "number",
+          "description": "Maximum lookahead distance multiplier",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "collision": {
+      "type": "object",
+      "description": "Collision resolution settings",
+      "properties": {
+        "resolutionIterations": {
+          "type": "integer",
+          "description": "Collision resolution iterations",
+          "minimum": 1
+        },
+        "pushStrength": {
+          "type": "number",
+          "description": "Collision push strength",
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

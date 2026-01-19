@@ -110,8 +110,8 @@ public class JsonDataProvider : IDataProvider
     {
         _referenceManager.LoadAll(_dataDirectory, _logger);
         BuildUnitStatsCache();
-        // TODO: BuildWaveDefinitionsCache() when waves.json exists
-        // TODO: LoadGameBalance() when balance.json exists
+        BuildWaveDefinitionsCache();
+        LoadGameBalance();
     }
 
     private void BuildUnitStatsCache()
@@ -152,6 +152,100 @@ public class JsonDataProvider : IDataProvider
             ShieldHP = unit.ShieldHP,
             SpawnCount = unit.SpawnCount,
             Skills = unit.Skills.ToList()
+        };
+    }
+
+    private void BuildWaveDefinitionsCache()
+    {
+        var wavesTable = _referenceManager.Waves;
+        if (wavesTable == null)
+        {
+            _logger?.Invoke("[JsonDataProvider] Waves table not loaded");
+            return;
+        }
+
+        foreach (var (id, wave) in wavesTable.GetAll())
+        {
+            var waveDef = ConvertToWaveDefinition(wave);
+            _waveDefinitionsCache[wave.WaveNumber] = waveDef;
+        }
+
+        _logger?.Invoke($"[JsonDataProvider] Built {_waveDefinitionsCache.Count} wave definitions");
+    }
+
+    private static WaveDefinition ConvertToWaveDefinition(WaveReference wave)
+    {
+        var spawnGroups = wave.Spawns.Select(spawn => new WaveSpawnGroup
+        {
+            UnitId = spawn.UnitId,
+            PositionX = spawn.Position.X,
+            PositionY = spawn.Position.Y,
+            CustomHP = spawn.CustomHP,
+            CustomSpeed = spawn.CustomSpeed
+        }).ToList();
+
+        return new WaveDefinition
+        {
+            WaveNumber = wave.WaveNumber,
+            DelayFrames = wave.DelayFrames,
+            SpawnGroups = spawnGroups
+        };
+    }
+
+    private void LoadGameBalance()
+    {
+        var balance = _referenceManager.Balance;
+        if (balance == null)
+        {
+            _logger?.Invoke("[JsonDataProvider] Balance data not loaded, using defaults");
+            _gameBalance = GameBalance.Default;
+            return;
+        }
+
+        _gameBalance = ConvertToGameBalance(balance);
+        _logger?.Invoke($"[JsonDataProvider] Loaded game balance (version {balance.Version})");
+    }
+
+    private static GameBalance ConvertToGameBalance(BalanceReference balance)
+    {
+        return new GameBalance
+        {
+            Version = balance.Version,
+            // Simulation
+            SimulationWidth = balance.Simulation?.Width ?? 3200,
+            SimulationHeight = balance.Simulation?.Height ?? 5100,
+            MaxFrames = balance.Simulation?.MaxFrames ?? 3000,
+            FrameTimeSeconds = balance.Simulation?.FrameTimeSeconds ?? 1f / 30f,
+            // Unit
+            UnitRadius = balance.Unit?.DefaultRadius ?? 20f,
+            CollisionRadiusScale = balance.Unit?.CollisionRadiusScale ?? 2f / 3f,
+            NumAttackSlots = balance.Unit?.NumAttackSlots ?? 8,
+            SlotReevaluateDistance = balance.Unit?.SlotReevaluateDistance ?? 40f,
+            SlotReevaluateIntervalFrames = balance.Unit?.SlotReevaluateIntervalFrames ?? 60,
+            // Combat
+            AttackCooldown = balance.Combat?.AttackCooldown ?? 30f,
+            MeleeRangeMultiplier = balance.Combat?.MeleeRangeMultiplier ?? 3,
+            RangedRangeMultiplier = balance.Combat?.RangedRangeMultiplier ?? 6,
+            EngagementTriggerDistanceMultiplier = balance.Combat?.EngagementTriggerDistanceMultiplier ?? 1.5f,
+            // Squad
+            RallyDistance = balance.Squad?.RallyDistance ?? 300f,
+            FormationThreshold = balance.Squad?.FormationThreshold ?? 20f,
+            SeparationRadius = balance.Squad?.SeparationRadius ?? 120f,
+            FriendlySeparationRadius = balance.Squad?.FriendlySeparationRadius ?? 80f,
+            DestinationThreshold = balance.Squad?.DestinationThreshold ?? 10f,
+            // Wave
+            MaxWaves = balance.Wave?.MaxWaves ?? 3,
+            // Targeting
+            TargetReevaluateIntervalFrames = balance.Targeting?.ReevaluateIntervalFrames ?? 45,
+            TargetSwitchMargin = balance.Targeting?.SwitchMargin ?? 15f,
+            TargetCrowdPenaltyPerAttacker = balance.Targeting?.CrowdPenaltyPerAttacker ?? 25f,
+            // Avoidance
+            AvoidanceAngleStep = balance.Avoidance?.AngleStep ?? MathF.PI / 8f,
+            MaxAvoidanceIterations = balance.Avoidance?.MaxIterations ?? 8,
+            AvoidanceMaxLookahead = balance.Avoidance?.MaxLookahead ?? 3.5f,
+            // Collision
+            CollisionResolutionIterations = balance.Collision?.ResolutionIterations ?? 3,
+            CollisionPushStrength = balance.Collision?.PushStrength ?? 0.8f
         };
     }
 }
