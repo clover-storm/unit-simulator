@@ -61,7 +61,7 @@ export default function DataEditor({ apiBaseUrl }: Props) {
   const [isValidating, setIsValidating] = useState(false);
 
   // Schema validator hook
-  const { validate, hasSchema, getSchemaForFile, isLoading: isLoadingSchema } = useSchemaValidator(apiBaseUrl);
+  const { validate, hasSchema, getSchemaForFile } = useSchemaValidator(apiBaseUrl);
 
   const isArray = useMemo(() => Array.isArray(documentValue), [documentValue]);
 
