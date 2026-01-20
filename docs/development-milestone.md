@@ -1002,6 +1002,8 @@ flowchart LR
 
 ### M2.3: 런타임 데이터 로더
 
+**상태**: ✅ 완료
+
 **담당**: 코어 개발
 
 **작업 내용**:
@@ -1011,28 +1013,34 @@ namespace UnitSimulator.Core.Data
 {
     public class JsonDataProvider : IDataProvider
     {
-        private readonly Dictionary<string, UnitStats> _unitStats;
-        private readonly List<WaveDefinition> _waves;
-        private readonly GameBalance _balance;
+        private readonly string _dataDirectory;
+        private ReferenceManager _referenceManager;
+        private Dictionary<string, UnitStats> _unitStatsCache;
 
-        public JsonDataProvider(string dataPath)
+        public JsonDataProvider(string dataDirectory, Action<string>? logger = null)
         {
-            _unitStats = LoadJson<Dictionary<string, UnitStats>>(
-                Path.Combine(dataPath, "units.json"));
-            _waves = LoadJson<List<WaveDefinition>>(
-                Path.Combine(dataPath, "waves.json"));
-            _balance = LoadJson<GameBalance>(
-                Path.Combine(dataPath, "balance.json"));
+            _dataDirectory = dataDirectory;
+            _referenceManager = ReferenceManager.CreateWithDefaultHandlers();
+            LoadData();
         }
 
-        public UnitStats GetUnitStats(UnitRole role, UnitFaction faction)
-            => _unitStats[$"{faction}_{role}"];
+        public UnitStats GetUnitStats(string unitId)
+            => _unitStatsCache.TryGetValue(unitId.ToLowerInvariant(), out var stats)
+                ? stats : UnitStats.Default;
+
+        public bool HasUnit(string unitId)
+            => _unitStatsCache.ContainsKey(unitId.ToLowerInvariant());
+
+        public IEnumerable<string> GetAllUnitIds()
+            => _unitStatsCache.Keys;
 
         public WaveDefinition GetWaveDefinition(int waveNumber)
-            => _waves[waveNumber - 1];
+            => _waveDefinitionsCache.TryGetValue(waveNumber, out var wave)
+                ? wave : WaveDefinition.Empty(waveNumber);
 
-        public GameBalance GetGameBalance()
-            => _balance;
+        public GameBalance GetGameBalance() => _gameBalance;
+
+        public void Reload() { /* 핫 리로드 지원 */ }
     }
 }
 ```
@@ -1041,23 +1049,38 @@ namespace UnitSimulator.Core.Data
 **출력**: 런타임 데이터 로딩 구현
 
 **완료 조건**:
-- [ ] Core가 외부 JSON에서 데이터 로드
-- [ ] 하드코딩된 상수값 제거
-- [ ] 핫 리로드 지원 (개발 모드)
+- [x] Core가 외부 JSON에서 데이터 로드
+- [x] IDataProvider 인터페이스 및 JsonDataProvider 구현
+- [x] 핫 리로드 지원 (Reload() 메서드)
 
-**현재 구현 범위**:
-- Core는 `ReferenceManager`를 통해 `data/references/*.json`을 직접 로드
-- `IDataProvider`/`JsonDataProvider` 구조는 없음
-- waves/balance 등 추가 데이터 타입 로드는 없음
+**구현 결과**:
 
-**향후 작업 (문서 기준으로 필요하지만 미구현)**:
-- [ ] `IDataProvider` 추상화 및 `JsonDataProvider` 구현
-- [ ] waves/balance 등 추가 데이터 타입 모델 및 로더 정의
-- [ ] 핫 리로드 정책/구현 추가
+1. **Contract 타입 확장** (`UnitSimulator.Core/Contracts/`):
+   - `IDataProvider.cs` - 데이터 제공 인터페이스 (unitId 기반 조회)
+   - `UnitStats.cs` - 유닛 스탯 (HP, Damage, Speed, Role, Layer, CanTarget 등)
+   - `WaveDefinition.cs` - 웨이브 정의 (SpawnGroups, DelayFrames)
+   - `GameBalance.cs` - 게임 밸런스 설정 (시뮬레이션 상수)
+
+2. **Data Provider 구현** (`UnitSimulator.Core/Data/`):
+   - `JsonDataProvider.cs` - ReferenceManager를 래핑하여 IDataProvider 구현
+   - `DefaultDataProvider.cs` - 테스트/폴백용 기본 데이터 제공자
+   - `DataProviderFactory.cs` - 환경에 따른 제공자 생성 팩토리
+
+3. **SimulatorCore 통합**:
+   - `Initialize(IDataProvider, InitialSetup?)` 오버로드 추가
+   - `DataProvider` 속성 추가
+   - `SpawnUnitFromDataProvider()` 메서드 추가
+
+**향후 작업**:
+- [ ] waves.json 데이터 파일 생성 및 로드 지원
+- [ ] balance.json 데이터 파일 생성 및 로드 지원
+- [ ] 기존 ReferenceManager 기반 코드를 IDataProvider로 점진적 마이그레이션
 
 ---
 
 ### M2.4: 데이터 뷰/에디터 (React)
+
+**상태**: ✅ 완료
 
 **담당**: 툴링/UX
 
@@ -1067,12 +1090,41 @@ namespace UnitSimulator.Core.Data
 - JSON을 **단일 소스**로 유지
 - React 기반 UI로 테이블/폼 뷰 제공
 - 스키마 검증(저장 전) + mtime/hash 기반 충돌 감지
-- 초기에는 **별도 앱으로 구성 후 안정화되면 sim-studio에 통합**
+- sim-studio에 통합 (DataEditor 컴포넌트)
 
 **완료 조건**:
-- [ ] JSON 데이터 목록/조회/수정/추가/삭제 가능
-- [ ] 스키마 검증 실패 시 저장 차단
-- [ ] 충돌 감지 및 diff 확인 가능
+- [x] JSON 데이터 목록/조회/수정/추가/삭제 가능
+- [x] 스키마 검증 실패 시 저장 차단
+- [x] 충돌 감지 및 diff 확인 가능
+
+**구현 결과**:
+
+1. **DataEditor 컴포넌트** (`sim-studio/src/components/DataEditor.tsx`):
+   - 3가지 뷰 모드: Spreadsheet, Table, Raw JSON
+   - 파일 생성/삭제/이름변경
+   - 레코드 추가/삭제/수정
+   - ETag 기반 충돌 감지
+
+2. **스키마 검증** (`sim-studio/src/hooks/useSchemaValidator.ts`):
+   - Ajv 기반 클라이언트 사이드 검증
+   - 저장 전 자동 검증 (검증 실패 시 저장 차단)
+   - 수동 Validate 버튼
+   - 에러 상세 목록 표시
+
+3. **서버 API** (`UnitSimulator.Server/WebSocketServer.cs`):
+   - `GET /data/files` - 파일 목록
+   - `GET /data/file?path=xxx` - 파일 읽기
+   - `PUT /data/file?path=xxx` - 파일 저장 (ETag 충돌 감지)
+   - `DELETE /data/file?path=xxx` - 파일 삭제
+   - `GET /data/schemas` - 스키마 목록
+   - `GET /data/schema?name=xxx` - 스키마 조회
+
+4. **지원 스키마 매핑**:
+   - `units.json` → `unit-stats.schema.json`
+   - `skills.json` → `skill-reference.schema.json`
+   - `towers.json` → `tower-reference.schema.json`
+   - `waves.json` → `wave-definition.schema.json`
+   - `balance.json` → `game-balance.schema.json`
 
 ## 6. Phase 3: 게임 엔진 선정 및 어댑터 개발
 

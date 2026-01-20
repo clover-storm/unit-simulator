@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "simulation": {
+    "width": 3200,
+    "height": 5100,
+    "maxFrames": 3000,
+    "frameTimeSeconds": 0.0333
+  },
+  "unit": {
+    "defaultRadius": 20,
+    "collisionRadiusScale": 0.667,
+    "numAttackSlots": 8,
+    "slotReevaluateDistance": 40,
+    "slotReevaluateIntervalFrames": 60
+  },
+  "combat": {
+    "attackCooldown": 30,
+    "meleeRangeMultiplier": 3,
+    "rangedRangeMultiplier": 6,
+    "engagementTriggerDistanceMultiplier": 1.5
+  },
+  "squad": {
+    "rallyDistance": 300,
+    "formationThreshold": 20,
+    "separationRadius": 120,
+    "friendlySeparationRadius": 80,
+    "destinationThreshold": 10
+  },
+  "wave": {
+    "maxWaves": 3
+  },
+  "targeting": {
+    "reevaluateIntervalFrames": 45,
+    "switchMargin": 15,
+    "crowdPenaltyPerAttacker": 25
+  },
+  "avoidance": {
+    "angleStep": 0.3927,
+    "maxIterations": 8,
+    "maxLookahead": 3.5
+  },
+  "collision": {
+    "resolutionIterations": 3,
+    "pushStrength": 0.8
+  }
+}

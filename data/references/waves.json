@@ -1,0 +1,42 @@
+{
+  "wave_1": {
+    "waveNumber": 1,
+    "spawns": [
+      { "unitId": "skeleton", "position": { "x": 1920, "y": 2490 } },
+      { "unitId": "skeleton", "position": { "x": 1920, "y": 2610 } },
+      { "unitId": "skeleton", "position": { "x": 2080, "y": 2430 } },
+      { "unitId": "skeleton", "position": { "x": 2080, "y": 2670 } },
+      { "unitId": "skeleton", "position": { "x": 1760, "y": 2370 } },
+      { "unitId": "skeleton", "position": { "x": 1760, "y": 2730 } }
+    ],
+    "delayFrames": 0
+  },
+  "wave_2": {
+    "waveNumber": 2,
+    "spawns": [
+      { "unitId": "knight", "position": { "x": 2240, "y": 150 } },
+      { "unitId": "knight", "position": { "x": 2240, "y": 4950 } },
+      { "unitId": "skeleton", "position": { "x": 2400, "y": 250 } },
+      { "unitId": "skeleton", "position": { "x": 2400, "y": 4850 } },
+      { "unitId": "archer", "position": { "x": 2560, "y": 2450 } },
+      { "unitId": "archer", "position": { "x": 2560, "y": 2650 } },
+      { "unitId": "skeleton", "position": { "x": 2720, "y": 2330 } },
+      { "unitId": "skeleton", "position": { "x": 2720, "y": 2770 } }
+    ],
+    "delayFrames": 30
+  },
+  "wave_3": {
+    "waveNumber": 3,
+    "spawns": [
+      { "unitId": "mini_pekka", "position": { "x": 2950, "y": 2370 } },
+      { "unitId": "mini_pekka", "position": { "x": 2950, "y": 2730 } },
+      { "unitId": "knight", "position": { "x": 2850, "y": 2460 } },
+      { "unitId": "knight", "position": { "x": 2850, "y": 2640 } },
+      { "unitId": "archer", "position": { "x": 2750, "y": 2370 } },
+      { "unitId": "archer", "position": { "x": 2750, "y": 2730 } },
+      { "unitId": "golem", "position": { "x": 2650, "y": 2290 } },
+      { "unitId": "golem", "position": { "x": 2650, "y": 2810 } }
+    ],
+    "delayFrames": 60
+  }
+}

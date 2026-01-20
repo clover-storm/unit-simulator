@@ -85,4 +85,28 @@ public static class ReferenceHandlers
 
         return new ReferenceTable<TowerReference>(tableName, data);
     }
+
+    /// <summary>
+    /// waves.json을 파싱합니다.
+    /// </summary>
+    /// <param name="tableName">테이블 이름</param>
+    /// <param name="jsonContent">JSON 내용</param>
+    /// <returns>WaveReference 테이블</returns>
+    public static ReferenceTable<WaveReference> ParseWaves(string tableName, string jsonContent)
+    {
+        var data = JsonSerializer.Deserialize<Dictionary<string, WaveReference>>(jsonContent, JsonOptions)
+            ?? new Dictionary<string, WaveReference>();
+
+        return new ReferenceTable<WaveReference>(tableName, data);
+    }
+
+    /// <summary>
+    /// balance.json을 파싱합니다.
+    /// </summary>
+    /// <param name="jsonContent">JSON 내용</param>
+    /// <returns>BalanceReference 객체</returns>
+    public static BalanceReference? ParseBalance(string jsonContent)
+    {
+        return JsonSerializer.Deserialize<BalanceReference>(jsonContent, JsonOptions);
+    }
 }

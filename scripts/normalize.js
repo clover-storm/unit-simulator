@@ -114,6 +114,61 @@ function normalizeTower(id, tower) {
 }
 
 /**
+ * Wave normalization
+ */
+function normalizeWave(id, wave) {
+  return {
+    waveNumber: wave.waveNumber,
+    spawns: (wave.spawns || []).map(spawn => ({
+      unitId: spawn.unitId,
+      position: {
+        x: spawn.position.x,
+        y: spawn.position.y
+      },
+      ...(spawn.customHP !== undefined && { customHP: spawn.customHP }),
+      ...(spawn.customSpeed !== undefined && { customSpeed: spawn.customSpeed })
+    })),
+    ...(wave.delayFrames !== undefined && { delayFrames: wave.delayFrames })
+  };
+}
+
+/**
+ * Balance data - copy as-is (already matches schema)
+ */
+function normalizeBalance(data) {
+  return data;
+}
+
+/**
+ * Process balance.json (single object, not key-value pairs)
+ */
+function processBalanceFile() {
+  const inputPath = path.join(REFERENCES_DIR, 'balance.json');
+  const outputPath = path.join(PROCESSED_DIR, 'balance.json');
+
+  if (!fs.existsSync(inputPath)) {
+    console.log(`  Skipping balance.json (not found in references)`);
+    return { skipped: true };
+  }
+
+  const inputData = JSON.parse(fs.readFileSync(inputPath, 'utf8'));
+  const outputData = normalizeBalance(inputData);
+
+  // Ensure processed directory exists
+  if (!fs.existsSync(PROCESSED_DIR)) {
+    fs.mkdirSync(PROCESSED_DIR, { recursive: true });
+  }
+
+  fs.writeFileSync(outputPath, JSON.stringify(outputData, null, 2) + '\n');
+
+  return {
+    processed: 1,
+    inputPath,
+    outputPath
+  };
+}
+
+/**
  * Process a single data file
  */
 function processFile(filename, normalizer) {
@@ -183,6 +238,22 @@ function normalize() {
     results.push({ file: 'towers.json', ...towersResult });
   }
 
+  // Process waves
+  console.log('Processing waves.json...');
+  const wavesResult = processFile('waves.json', normalizeWave);
+  if (!wavesResult.skipped) {
+    console.log(`  Normalized ${wavesResult.processed} waves`);
+    results.push({ file: 'waves.json', ...wavesResult });
+  }
+
+  // Process balance
+  console.log('Processing balance.json...');
+  const balanceResult = processBalanceFile();
+  if (!balanceResult.skipped) {
+    console.log(`  Normalized balance configuration`);
+    results.push({ file: 'balance.json', ...balanceResult });
+  }
+
   console.log('\nNormalization complete!');
   console.log(`Processed ${results.length} files`);
 
@@ -200,4 +271,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { normalize, normalizeUnit, normalizeSkill, normalizeTower };
+module.exports = { normalize, normalizeUnit, normalizeSkill, normalizeTower, normalizeWave, normalizeBalance };

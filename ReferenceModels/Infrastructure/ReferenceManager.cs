@@ -45,6 +45,16 @@ public class ReferenceManager
     public ReferenceTable<TowerReference>? Towers => GetTable<TowerReference>("towers");
 
     /// <summary>
+    /// Waves 테이블 편의 접근자
+    /// </summary>
+    public ReferenceTable<WaveReference>? Waves => GetTable<WaveReference>("waves");
+
+    /// <summary>
+    /// Balance 데이터 (단일 객체)
+    /// </summary>
+    public BalanceReference? Balance { get; private set; }
+
+    /// <summary>
     /// 테이블 핸들러를 등록합니다.
     /// </summary>
     /// <typeparam name="T">레퍼런스 데이터 타입</typeparam>
@@ -77,6 +87,22 @@ public class ReferenceManager
         {
             var fileName = Path.GetFileNameWithoutExtension(filePath).ToLowerInvariant();
 
+            // balance.json은 특별 처리 (단일 객체)
+            if (fileName == "balance")
+            {
+                try
+                {
+                    var jsonContent = File.ReadAllText(filePath);
+                    Balance = ReferenceHandlers.ParseBalance(jsonContent);
+                    logger($"[ReferenceManager] Loaded 'balance' (version {Balance?.Version ?? 0})");
+                }
+                catch (Exception ex)
+                {
+                    logger($"[Error] Failed to load 'balance': {ex.Message}");
+                }
+                continue;
+            }
+
             if (!_handlers.TryGetValue(fileName, out var handler))
             {
                 logger($"[Warning] No handler registered for '{fileName}', skipping");
@@ -96,7 +122,7 @@ public class ReferenceManager
             }
         }
 
-        logger($"[ReferenceManager] Total {_tables.Count} table(s) loaded");
+        logger($"[ReferenceManager] Total {_tables.Count} table(s) loaded" + (Balance != null ? " + balance" : ""));
     }
 
     /// <summary>
@@ -141,6 +167,7 @@ public class ReferenceManager
         manager.RegisterHandler<BuildingReference>("buildings", ReferenceHandlers.ParseBuildings);
         manager.RegisterHandler<SpellReference>("spells", ReferenceHandlers.ParseSpells);
         manager.RegisterHandler<TowerReference>("towers", ReferenceHandlers.ParseTowers);
+        manager.RegisterHandler<WaveReference>("waves", ReferenceHandlers.ParseWaves);
         return manager;
     }
 

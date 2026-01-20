@@ -220,6 +220,43 @@ body {
   color: #4ade80;
 }
 
+.data-editor-validation-errors {
+  padding: 0.75rem;
+  border-radius: 6px;
+  background-color: rgba(248, 113, 113, 0.1);
+  border: 1px solid rgba(248, 113, 113, 0.3);
+}
+
+.data-editor-validation-errors .validation-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #f87171;
+  margin-bottom: 0.5rem;
+}
+
+.data-editor-validation-errors .validation-error-list {
+  margin: 0;
+  padding-left: 1.25rem;
+  color: #fca5a5;
+  font-size: 0.85rem;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.data-editor-validation-errors .validation-error-list li {
+  margin-bottom: 0.25rem;
+  font-family: monospace;
+}
+
+.data-editor-validation-success {
+  padding: 0.5rem;
+  border-radius: 6px;
+  background-color: rgba(74, 222, 128, 0.1);
+  border: 1px solid rgba(74, 222, 128, 0.3);
+  color: #4ade80;
+}
+
 .data-editor-empty {
   color: #9ca3af;
 }

@@ -120,6 +120,18 @@ public class WebSocketServer : IDisposable
             {
                 HandleDataFileRequest(context);
             }
+            else if (path == "/data/schemas")
+            {
+                HandleDataSchemasRequest(context);
+            }
+            else if (path == "/data/schema")
+            {
+                HandleDataSchemaRequest(context);
+            }
+            else if (path == "/data/validate")
+            {
+                HandleDataValidateRequest(context);
+            }
             else
             {
                 response.StatusCode = 404;
@@ -293,6 +305,115 @@ public class WebSocketServer : IDisposable
         }
 
         response.StatusCode = 405;
+    }
+
+    private void HandleDataSchemasRequest(HttpListenerContext context)
+    {
+        var response = context.Response;
+
+        if (context.Request.HttpMethod != "GET")
+        {
+            response.StatusCode = 405;
+            return;
+        }
+
+        var schemasDir = Path.Combine(Path.GetDirectoryName(_dataRoot) ?? ".", "schemas");
+        if (!Directory.Exists(schemasDir))
+        {
+            RespondJson(response, 200, new { root = schemasDir, schemas = Array.Empty<object>() });
+            return;
+        }
+
+        var schemas = Directory.EnumerateFiles(schemasDir, "*.schema.json")
+            .Select(path => new FileInfo(path))
+            .Select(info => new
+            {
+                name = Path.GetFileNameWithoutExtension(info.Name).Replace(".schema", ""),
+                path = info.Name
+            })
+            .ToList();
+
+        RespondJson(response, 200, new { root = schemasDir, schemas });
+    }
+
+    private void HandleDataSchemaRequest(HttpListenerContext context)
+    {
+        var response = context.Response;
+
+        if (context.Request.HttpMethod != "GET")
+        {
+            response.StatusCode = 405;
+            return;
+        }
+
+        var query = ParseQuery(context.Request.Url?.Query ?? "");
+        query.TryGetValue("name", out var schemaName);
+
+        if (string.IsNullOrWhiteSpace(schemaName))
+        {
+            RespondJson(response, 400, new { error = "Missing schema name." });
+            return;
+        }
+
+        var schemasDir = Path.Combine(Path.GetDirectoryName(_dataRoot) ?? ".", "schemas");
+        var schemaPath = Path.Combine(schemasDir, $"{schemaName}.schema.json");
+
+        if (!File.Exists(schemaPath))
+        {
+            RespondJson(response, 404, new { error = "Schema not found." });
+            return;
+        }
+
+        var content = File.ReadAllText(schemaPath);
+        RespondJson(response, 200, new { name = schemaName, schema = JsonDocument.Parse(content).RootElement });
+    }
+
+    private void HandleDataValidateRequest(HttpListenerContext context)
+    {
+        var response = context.Response;
+
+        if (context.Request.HttpMethod != "POST")
+        {
+            response.StatusCode = 405;
+            return;
+        }
+
+        using var reader = new StreamReader(context.Request.InputStream, context.Request.ContentEncoding ?? Encoding.UTF8);
+        var body = reader.ReadToEnd();
+
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (!doc.RootElement.TryGetProperty("schemaName", out var schemaNameElement) ||
+                !doc.RootElement.TryGetProperty("data", out var dataElement))
+            {
+                RespondJson(response, 400, new { error = "Missing schemaName or data." });
+                return;
+            }
+
+            var schemaName = schemaNameElement.GetString();
+            var schemasDir = Path.Combine(Path.GetDirectoryName(_dataRoot) ?? ".", "schemas");
+            var schemaPath = Path.Combine(schemasDir, $"{schemaName}.schema.json");
+
+            if (!File.Exists(schemaPath))
+            {
+                RespondJson(response, 404, new { error = "Schema not found." });
+                return;
+            }
+
+            // Return schema for client-side validation
+            var schemaContent = File.ReadAllText(schemaPath);
+            RespondJson(response, 200, new
+            {
+                valid = true,
+                schema = JsonDocument.Parse(schemaContent).RootElement,
+                message = "Schema loaded for validation. Client-side validation recommended."
+            });
+        }
+        catch (JsonException ex)
+        {
+            RespondJson(response, 400, new { error = $"Invalid JSON: {ex.Message}" });
+        }
     }
 
     private static Dictionary<string, string> ParseQuery(string query)
