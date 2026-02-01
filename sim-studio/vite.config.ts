@@ -10,6 +10,15 @@ export default defineConfig({
         target: 'ws://localhost:5001',
         ws: true,
       },
+      '/sessions': {
+        target: 'http://localhost:5001',
+      },
+      '/health': {
+        target: 'http://localhost:5001',
+      },
+      '/data': {
+        target: 'http://localhost:5001',
+      },
     },
   },
   build: {

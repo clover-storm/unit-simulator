@@ -27,7 +27,8 @@ public class WebSocketServer : IDisposable
         _port = port;
         _sessionManager = new SessionManager(sessionOptions);
         _httpListener = new HttpListener();
-        _httpListener.Prefixes.Add($"http://localhost:{port}/");
+        var bindHost = Environment.GetEnvironmentVariable("BIND_HOST") ?? "localhost";
+        _httpListener.Prefixes.Add($"http://{bindHost}:{port}/");
 
         _dataRoot = Path.Combine(Directory.GetCurrentDirectory(), "data", "processed");
 
