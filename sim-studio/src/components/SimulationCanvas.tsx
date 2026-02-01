@@ -8,6 +8,7 @@ interface SimulationCanvasProps {
   focusMode: CameraFocusMode;
   onUnitSelect: (unit: UnitStateData | null) => void;
   onCanvasClick: (x: number, y: number) => void;
+  showTargetingLines?: boolean;
 }
 
 const DEFAULT_CANVAS_WIDTH = 1200;
@@ -74,6 +75,7 @@ function SimulationCanvas({
   focusMode,
   onUnitSelect,
   onCanvasClick,
+  showTargetingLines = false,
 }: SimulationCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [canvasSize, setCanvasSize] = useState({
@@ -725,7 +727,74 @@ function SimulationCanvas({
 
     frameData.enemyUnits.forEach(drawUnit);
     frameData.friendlyUnits.forEach(drawUnit);
-  }, [baseScale, canvasSize.height, canvasSize.width, frameData, iconVersion, selectedUnitId, selectedFaction, view]);
+
+    // 타겟팅 라인 그리기
+    if (showTargetingLines) {
+      const allUnits = [...frameData.friendlyUnits, ...frameData.enemyUnits];
+      const unitMap = new Map<string, UnitStateData>();
+      allUnits.forEach(u => unitMap.set(`${u.faction}-${u.id}`, u));
+
+      const drawTargetingLine = (unit: UnitStateData) => {
+        if (unit.isDead || unit.targetId == null) return;
+
+        // 선택된 유닛이 있으면 해당 유닛의 타겟팅만 강조
+        const isHighlighted = selectedUnitId !== null && selectedFaction !== null
+          && unit.id === selectedUnitId && unit.faction === selectedFaction;
+        const hasSelection = selectedUnitId !== null && selectedFaction !== null;
+
+        if (hasSelection && !isHighlighted) {
+          // 선택 시 다른 유닛의 라인은 흐리게
+          ctx.globalAlpha = 0.15;
+        } else {
+          ctx.globalAlpha = hasSelection ? 0.8 : 0.4;
+        }
+
+        // 타겟 유닛 찾기 (같은 팩션이 아닌 상대에서 찾기)
+        const opposingFaction = unit.faction === 'Friendly' ? 'Enemy' : 'Friendly';
+        const target = unitMap.get(`${opposingFaction}-${unit.targetId}`);
+        if (!target) return;
+
+        const fromX = unit.position.x;
+        const fromY = flipY(unit.position.y);
+        const toX = target.position.x;
+        const toY = flipY(target.position.y);
+
+        // 공격 타겟 (사거리 내) = 빨강, 이동 타겟 = 파랑
+        const isAttackTarget = unit.inAttackRange;
+        const lineColor = isAttackTarget ? '#ef4444' : '#3b82f6';
+
+        ctx.beginPath();
+        ctx.setLineDash([6, 4]);
+        ctx.moveTo(fromX, fromY);
+        ctx.lineTo(toX, toY);
+        ctx.strokeStyle = lineColor;
+        ctx.lineWidth = (isHighlighted ? 3 : 1.5) / (baseScale * zoom);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // 화살표 끝 그리기
+        const angle = Math.atan2(toY - fromY, toX - fromX);
+        const arrowSize = (isHighlighted ? 12 : 8) / (baseScale * zoom);
+        ctx.beginPath();
+        ctx.moveTo(toX, toY);
+        ctx.lineTo(
+          toX - arrowSize * Math.cos(angle - Math.PI / 6),
+          toY - arrowSize * Math.sin(angle - Math.PI / 6)
+        );
+        ctx.lineTo(
+          toX - arrowSize * Math.cos(angle + Math.PI / 6),
+          toY - arrowSize * Math.sin(angle + Math.PI / 6)
+        );
+        ctx.closePath();
+        ctx.fillStyle = lineColor;
+        ctx.fill();
+
+        ctx.globalAlpha = 1;
+      };
+
+      allUnits.forEach(drawTargetingLine);
+    }
+  }, [baseScale, canvasSize.height, canvasSize.width, frameData, iconVersion, selectedUnitId, selectedFaction, view, showTargetingLines]);
 
   return (
     <canvas

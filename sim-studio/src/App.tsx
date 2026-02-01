@@ -1,5 +1,5 @@
-import { useState, useCallback, useEffect } from 'react';
-import { CameraFocusMode, Command, UnitStateData } from './types';
+import { useState, useCallback, useEffect, useRef } from 'react';
+import { CameraFocusMode, Command, UnitStateData, SpeedMultiplier, SPEED_PRESETS } from './types';
 import { useWebSocket } from './hooks/useWebSocket';
 import { downloadFrameLog } from './utils/frameLogDownload';
 import SimulationCanvas from './components/SimulationCanvas';
@@ -10,9 +10,13 @@ import SessionSelector from './components/SessionSelector';
 import DataEditor from './components/DataEditor';
 import ResizablePanel from './components/ResizablePanel';
 import VerticalResizablePanel from './components/VerticalResizablePanel';
+import EventLogViewer from './components/EventLogViewer';
+import GameResultOverlay from './components/GameResultOverlay';
 
-const API_BASE_URL = 'http://localhost:5001';
-const WS_BASE_URL = 'ws://localhost:5001/ws';
+// Docker(nginx 프록시): 같은 origin 사용 → VITE_API_URL 미설정
+// 로컬 개발(npm run dev): Vite proxy가 /ws를 localhost:5001로 포워딩
+const API_BASE_URL = import.meta.env.VITE_API_URL || `${window.location.origin}`;
+const WS_BASE_URL = import.meta.env.VITE_WS_URL || `ws://${window.location.host}/ws`;
 
 function App() {
   const [activeView, setActiveView] = useState<'sim' | 'data'>('sim');
@@ -25,6 +29,12 @@ function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [seekFrameInput, setSeekFrameInput] = useState<string>('0');
   const [focusMode, setFocusMode] = useState<CameraFocusMode>('auto');
+  const [speed, setSpeed] = useState<SpeedMultiplier>(1);
+  const [showTargetingLines, setShowTargetingLines] = useState(false);
+  const [showGameResult, setShowGameResult] = useState(true);
+
+  // 속도 조절: 단축키에서 현재 속도 참조용
+  const speedRef = useRef<SpeedMultiplier>(1);
 
   const {
     frameData,
@@ -36,6 +46,10 @@ function App() {
     sessionId,
     role,
     isOwnerConnected,
+    unitEvents,
+    clearEvents,
+    gameResult,
+    clearGameResult,
   } = useWebSocket(WS_BASE_URL, {
     sessionId: selectedSession === undefined ? undefined : selectedSession,
   });
@@ -132,15 +146,43 @@ function App() {
   const handleReset = useCallback(() => {
     setIsPlaying(false);
     sendCommand({ type: 'reset' });
-  }, [sendCommand]);
+    clearGameResult();
+    clearEvents();
+  }, [sendCommand, clearGameResult, clearEvents]);
+
+  const handleSpeedChange = useCallback((newSpeed: SpeedMultiplier) => {
+    setSpeed(newSpeed);
+    speedRef.current = newSpeed;
+  }, []);
+
+  // 프레임 타임라인 슬라이더에서 seek
+  const handleFrameSeek = useCallback((frame: number) => {
+    if (connectionStatus !== 'connected') return;
+    if (isPlaying) {
+      sendCommand({ type: 'stop' });
+      setIsPlaying(false);
+    }
+    setSeekFrameInput(frame.toString());
+    sendCommand({ type: 'seek', frameNumber: frame });
+  }, [connectionStatus, isPlaying, sendCommand]);
+
+  // 게임 결과 표시 제어
+  useEffect(() => {
+    if (gameResult) {
+      setShowGameResult(true);
+    }
+  }, [gameResult]);
 
   const handleDownloadFrameLog = useCallback(() => {
     downloadFrameLog(frameLog);
   }, [frameLog]);
 
-  // Keyboard shortcuts for step/step back
+  // Keyboard shortcuts for step/step back and speed control
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      // 입력 필드에서는 단축키 무시
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
+
       if (connectionStatus !== 'connected') return;
       if (e.key === 'ArrowRight') {
         e.preventDefault();
@@ -148,17 +190,40 @@ function App() {
       } else if (e.key === 'ArrowLeft') {
         e.preventDefault();
         handleStepBack();
+      } else if (e.key === '[') {
+        // 감속
+        e.preventDefault();
+        const idx = SPEED_PRESETS.indexOf(speedRef.current);
+        if (idx > 0) {
+          handleSpeedChange(SPEED_PRESETS[idx - 1]);
+        }
+      } else if (e.key === ']') {
+        // 가속
+        e.preventDefault();
+        const idx = SPEED_PRESETS.indexOf(speedRef.current);
+        if (idx < SPEED_PRESETS.length - 1) {
+          handleSpeedChange(SPEED_PRESETS[idx + 1]);
+        }
+      } else if (e.key === 't' || e.key === 'T') {
+        // 타겟팅 라인 토글
+        e.preventDefault();
+        setShowTargetingLines(prev => !prev);
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [connectionStatus, handleStep, handleStepBack]);
+  }, [connectionStatus, handleStep, handleStepBack, handleSpeedChange]);
 
   const selectedUnit = frameData
     ? [...frameData.friendlyUnits, ...frameData.enemyUnits].find(
         u => u.id === selectedUnitId && u.faction === selectedFaction
       )
     : null;
+
+  const currentFrame = frameData?.frameNumber ?? 0;
+  const maxFrame = frameLog.length > 0
+    ? frameLog[frameLog.length - 1].frameNumber
+    : 0;
 
   // Check if user can control (owner and owner connected)
   const canControl = role === 'owner' && isOwnerConnected;
@@ -300,23 +365,36 @@ function App() {
                       )}
                     </div>
 
-                    <SimulationCanvas
-                      frameData={frameData}
-                      selectedUnitId={selectedUnitId}
-                      selectedFaction={selectedFaction}
-                      focusMode={focusMode}
-                      onUnitSelect={handleUnitSelect}
-                      onCanvasClick={(x, y) => {
-                        if (selectedUnit && !selectedUnit.isDead && canControl) {
-                          handleSendCommand({
-                            type: 'move',
-                            unitId: selectedUnit.id,
-                            faction: selectedUnit.faction,
-                            position: { x, y },
-                          });
-                        }
-                      }}
-                    />
+                    <div style={{ position: 'relative', flex: 1, display: 'flex', minHeight: 0 }}>
+                      <SimulationCanvas
+                        frameData={frameData}
+                        selectedUnitId={selectedUnitId}
+                        selectedFaction={selectedFaction}
+                        focusMode={focusMode}
+                        onUnitSelect={handleUnitSelect}
+                        showTargetingLines={showTargetingLines}
+                        onCanvasClick={(x, y) => {
+                          if (selectedUnit && !selectedUnit.isDead && canControl) {
+                            handleSendCommand({
+                              type: 'move',
+                              unitId: selectedUnit.id,
+                              faction: selectedUnit.faction,
+                              position: { x, y },
+                            });
+                          }
+                        }}
+                      />
+                      {gameResult && showGameResult && (
+                        <GameResultOverlay
+                          result={gameResult}
+                          onRestart={() => {
+                            setShowGameResult(false);
+                            handleReset();
+                          }}
+                          onDismiss={() => setShowGameResult(false)}
+                        />
+                      )}
+                    </div>
                   </>
                 }
                 bottomPanel={
@@ -334,7 +412,25 @@ function App() {
                       focusMode={focusMode}
                       onFocusModeChange={setFocusMode}
                       disabled={!canControl}
+                      speed={speed}
+                      onSpeedChange={handleSpeedChange}
+                      currentFrame={currentFrame}
+                      maxFrame={maxFrame}
+                      onFrameSeek={handleFrameSeek}
                     />
+
+                    {/* 디버그 오버레이 토글 */}
+                    <div className="debug-toggles" style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.8rem', color: '#9ca3af', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={showTargetingLines}
+                          onChange={(e) => setShowTargetingLines(e.target.checked)}
+                          style={{ width: 'auto' }}
+                        />
+                        Targeting Lines (T)
+                      </label>
+                    </div>
 
                     {!canControl && role === 'viewer' && (
                       <div className="viewer-notice">
@@ -363,6 +459,11 @@ function App() {
                 onSendCommand={handleSendCommand}
                 isConnected={connectionStatus === 'connected'}
                 disabled={!canControl}
+              />
+
+              <EventLogViewer
+                events={unitEvents}
+                onClear={clearEvents}
               />
             </div>
           }

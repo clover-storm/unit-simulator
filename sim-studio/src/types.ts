@@ -144,6 +144,46 @@ export interface SimulationCompleteMessage extends WebSocketMessage {
   };
 }
 
+// Speed multiplier presets for playback speed control
+export const SPEED_PRESETS = [0.25, 0.5, 1, 2, 4] as const;
+export type SpeedMultiplier = (typeof SPEED_PRESETS)[number];
+
+// Unit event types matching the server's UnitEventType enum
+export type UnitEventType =
+  | 'Spawned'
+  | 'Died'
+  | 'Attack'
+  | 'Damaged'
+  | 'TargetAcquired'
+  | 'TargetLost'
+  | 'MovementStarted'
+  | 'MovementStopped'
+  | 'EnteredCombat'
+  | 'ExitedCombat';
+
+// Collected unit event for the event log viewer
+export interface UnitEvent {
+  id: number; // auto-incremented for React keys
+  eventType: UnitEventType;
+  unitId: number;
+  faction: string;
+  frameNumber: number;
+  targetUnitId?: number;
+  value?: number;
+  position?: SerializableVector2;
+  timestamp: number;
+}
+
+// Game result data extracted from FrameData or simulation_complete
+export interface GameResult {
+  winner: 'Friendly' | 'Enemy' | 'Draw';
+  friendlyCrowns: number;
+  enemyCrowns: number;
+  isOvertime: boolean;
+  finalFrame: number;
+  reason: string;
+}
+
 // Commands that can be sent to the server
 export type CommandType =
   | 'move'

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { FrameData, Command, WebSocketMessage, SessionJoinedData, SessionRole } from '../types';
+import { FrameData, Command, WebSocketMessage, SessionJoinedData, SessionRole, UnitEvent, UnitEventType, GameResult } from '../types';
 import { getClientId } from './useClientId';
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
@@ -15,6 +15,12 @@ export interface UseWebSocketResult {
   sessionId: string | null;
   role: SessionRole | null;
   isOwnerConnected: boolean;
+  // Event log
+  unitEvents: UnitEvent[];
+  clearEvents: () => void;
+  // Game result
+  gameResult: GameResult | null;
+  clearGameResult: () => void;
 }
 
 interface UseWebSocketOptions {
@@ -38,6 +44,15 @@ export function useWebSocket(
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [role, setRole] = useState<SessionRole | null>(null);
   const [isOwnerConnected, setIsOwnerConnected] = useState(true);
+
+  // Unit events
+  const [unitEvents, setUnitEvents] = useState<UnitEvent[]>([]);
+  const eventIdRef = useRef(0);
+
+  // Game result
+  const [gameResult, setGameResult] = useState<GameResult | null>(null);
+
+  const frameDataRef = useRef<FrameData | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -109,6 +124,7 @@ export function useWebSocket(
             case 'frame': {
               const newFrameData = message.data as FrameData;
               console.log(`[useWebSocket] Frame received: #${newFrameData.frameNumber}, towers: ${newFrameData.friendlyTowers?.length || 0}F/${newFrameData.enemyTowers?.length || 0}E`);
+              frameDataRef.current = newFrameData;
               setFrameData(newFrameData);
               setFrameLogMap(prev => {
                 const updated = new Map(prev);
@@ -127,9 +143,57 @@ export function useWebSocket(
               }
               break;
             }
-            case 'simulation_complete':
-              // Could show completion UI
+            case 'unit_event': {
+              const eventData = message.data as {
+                eventType: string;
+                unitId: number;
+                faction: string;
+                frameNumber: number;
+                targetUnitId?: number;
+                value?: number;
+                position?: { x: number; y: number };
+              };
+              const newEvent: UnitEvent = {
+                id: ++eventIdRef.current,
+                eventType: eventData.eventType as UnitEventType,
+                unitId: eventData.unitId,
+                faction: eventData.faction,
+                frameNumber: eventData.frameNumber,
+                targetUnitId: eventData.targetUnitId,
+                value: eventData.value,
+                position: eventData.position,
+                timestamp: Date.now(),
+              };
+              setUnitEvents(prev => {
+                // 최대 500개 이벤트 유지
+                const updated = [...prev, newEvent];
+                return updated.length > 500 ? updated.slice(-500) : updated;
+              });
               break;
+            }
+            case 'simulation_complete': {
+              const completeData = message.data as {
+                finalFrame: number;
+                reason: string;
+              };
+              // FrameData의 gameResult 정보를 사용하거나 크라운 수로 판정
+              const latestFrame = frameDataRef.current;
+              const friendlyCrowns = latestFrame?.friendlyCrowns ?? 0;
+              const enemyCrowns = latestFrame?.enemyCrowns ?? 0;
+              let winner: 'Friendly' | 'Enemy' | 'Draw' = 'Draw';
+              if (friendlyCrowns > enemyCrowns) winner = 'Friendly';
+              else if (enemyCrowns > friendlyCrowns) winner = 'Enemy';
+
+              setGameResult({
+                winner,
+                friendlyCrowns,
+                enemyCrowns,
+                isOvertime: latestFrame?.isOvertime ?? false,
+                finalFrame: completeData.finalFrame,
+                reason: completeData.reason,
+              });
+              break;
+            }
             case 'error': {
               const errorData = message.data as { message?: string; code?: string } | string;
               if (typeof errorData === 'string') {
@@ -217,13 +281,26 @@ export function useWebSocket(
     };
   }, [connect]);
 
+  const clearEvents = useCallback(() => {
+    setUnitEvents([]);
+    eventIdRef.current = 0;
+  }, []);
+
+  const clearGameResult = useCallback(() => {
+    setGameResult(null);
+  }, []);
+
   // Reset state when session changes
   useEffect(() => {
     setFrameData(null);
+    frameDataRef.current = null;
     setFrameLogMap(new Map());
     setSessionId(null);
     setRole(null);
     setIsOwnerConnected(true);
+    setUnitEvents([]);
+    eventIdRef.current = 0;
+    setGameResult(null);
   }, [options.sessionId]);
 
   // Convert frameLogMap to sorted array
@@ -241,5 +318,9 @@ export function useWebSocket(
     sessionId,
     role,
     isOwnerConnected,
+    unitEvents,
+    clearEvents,
+    gameResult,
+    clearGameResult,
   };
 }
