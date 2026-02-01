@@ -236,7 +236,7 @@ public class SimulatorCore
     /// </summary>
     public void Initialize()
     {
-        Initialize(null, null);
+        Initialize(setup: null, referencePath: null);
     }
 
     /// <summary>
